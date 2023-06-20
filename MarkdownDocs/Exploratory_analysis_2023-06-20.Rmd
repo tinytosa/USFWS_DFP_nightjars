@@ -5,13 +5,22 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
+## document setup
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 #load packages
+
+#for playing with data
+
+#for GIS
 require(sf)
 require(raster)
+
+#for plotting
 require(ggplot2)
+
 
 ```
 
@@ -21,18 +30,112 @@ Look at states within the Atlantic Flyway and the Bird Conservation Regions (BCR
 
 ```{r}
 
+AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
+BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+#these are in NAD 83, longlat
+
+plot(AF_states)
+plot(BCR)
+
+```
+
+## Raw data from Nightjar Survey Network
+
+```{r, echo=T}
+nsn <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
+rt.id <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Route ID.csv")
+
+#rt.id id numbers to fix
+rt.id.correct <- read.csv("../Data_raw/NSN_routeid_corrections.csv", colClasses = "character")
+
+#########
+#routes
+
+#convert 5 digit route id to 6 digit
+nsn$Routeid.char <- sprintf("%06i", nsn$Routeid)
+nsn$st_code <- substr(nsn$Routeid.char, 0, 2)
+nsn$rt_code <- substr(nsn$Routeid.char, 3, 6)
+
+# write.table(unique(nsn$st_code), file="../Data_raw/NSN_routeid_codes.txt", sep=",", row.names=F)
+#determine states manually using graphing of points below
+
+summary(nsn)
+nsn.sf <- st_as_sf(nsn, coords=c("Latitude","Longitude"), crs=projection(AF_states))
+plot(nsn.sf)
+
+# unique(nsn$Routeid)
+
+# plot(nsn.sf[grep(nsn.sf$Routeid, pattern="^02"),])
+
+base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_states) + theme_bw() + theme(panel.grid=element_blank())
+# base.plot + geom_sf(data=nsn.sf[nsn.sf$st_code == "98",])
+
+#read csv file back in
+nsn.state.codes <- read.csv("../Data_raw/NSN_routeid_codes.csv", colClasses = "character")
+
+nsn <- merge(nsn, nsn.state.codes, by.x="st_code", by.y="routeid_code", all.x=T)
+
+#########
+#route id
+summary(rt.id)
+nrow(rt.id)
+table(rt.id$state)
+
+rt.id$route_id.char <- sprintf("%06i", rt.id$id)
+rt.id$st_code <- substr(rt.id$route_id.char, 0,2)
+rt.id$rt_code <- substr(rt.id$route_id.char, 3,6)
+
+verify <- unique(rt.id[,c("state","st_code")])
+# write.table(verify[duplicated(verify$state),], sep=",", file = "../Data_raw/nsn_routeid_tofix.txt", row.names=F)
+
+#read in corrected file and correct id numbers so they match nsn routes.csv
+rt.id <- merge(rt.id.correct[,c("original","corrected")], rt.id, by.x="original", by.y="route_id.char", all.y=T)
+rt.id[is.na(rt.id$corrected),]$corrected <- rt.id[is.na(rt.id$corrected),]$original
+
+rt.id$st_code <- substr(rt.id$corrected, 0,2)
+rt.id$rt_code <- substr(rt.id$corrected, 3,6)
+
+unique(rt.id[,c("state","st_code")])
+
+#NY, ME, MA, WI, NH, DE, VT, and AZ all have 00 state codes
+
+
+# rt.id[rt.id$state == "FL" & rt.id$st_code == "02",]
+# rt.id <- rt.id[rt.id$state %in% AF_states$ST,]
+# table(rt.id$state)
+
+```
+
+## Raw data from non-Nightjar Survey Network
+```{r, echo=T}
+non.nsn <- read.csv("../Data_raw/CombinedData/Allobs_noNJN.csv")
+non.nsn.sites <- read.csv("../Data_raw/CombinedData/Allroute_info.csv")
+
+#fix incorrect 
+non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude <- -(non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude)
+
+table(non.nsn.sites$state)
+
+# ontcan <- non.nsn.sites[non.nsn.sites$state == "ONTCAN",] #not in Atlantic flyway
+# ma <- non.nsn.sites[non.nsn.sites$state == "MA",] 
+# plot(ontcan$Route.Longitude, ontcan$Route.Latitude)
+# plot(ma$Route.Longitude, ma$Route.Latitude) #no location information
+
+unique(non.nsn.sites$state)
+
+nrow(non.nsn.sites)
+
+nrow(non.nsn.sites[is.na(non.nsn.sites$Route.Latitude),])
+nrow(non.nsn.sites[non.nsn.sites$created_at == "",])
+
+#some sites in the NE don't have created_at date times
+# non.nsn.sites <- non.nsn.sites[!is.na(non.nsn.sites$Route.Latitude) & non.nsn.sites$created_at != "",] 
+
+non.nsn.sites <- non.nsn.sites[non.nsn.sites$state %in% unique(AF_states$ST),]
+
+plot(non.nsn.sites$Route.Longitude, non.nsn.sites$Route.Latitude)
 
 
 
 
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

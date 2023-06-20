@@ -1,0 +1,38 @@
+---
+title: "Nightjar exploratory analysis"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages
+require(sf)
+require(raster)
+require(ggplot2)
+
+```
+
+## GIS layers
+
+Look at states within the Atlantic Flyway and the Bird Conservation Regions (BCR)
+
+```{r}
+
+
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

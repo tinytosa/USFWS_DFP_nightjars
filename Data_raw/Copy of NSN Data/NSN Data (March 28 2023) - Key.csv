@@ -1,0 +1,11 @@
+id,common_name,scientific_name,created_at,updated_at,code,,code,description
+2,Chuck-will's-widow,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,CWWI,,None,no effect of background noise on your ability to hear nightjars
+3,Common Nighthawk,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,CONI,,Slight Noise,"slightly affects your ability to hear nightjars (e.g. distant traffic, 1-2 car passing during a counting period)."
+4,Mexican Whip-poor-will,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,MWPW,,Medium Noise,"moderately affects your ability to hear nightjars (e.g. nearby traffic, 3-6 cars passing during survey period, airplane flying overhead)."
+5,Buff-collared Nightjar,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,BCNI,,Excessive Noise,"seriously affects your ability to hear nightjars (e.g. continuous traffic nearby, construction noise, frog chorus)"
+6,Lesser Nighthawk,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,LENI,,,
+7,Antillian Nighthawk,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,ANNI,,code,description
+8,Common Poorwill,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,COPO,,Clear Cloudless Sky,Can see stars and moon clearly
+9,Common Paurauque,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,COPA,,Mostly Clear,"Few clouds, less than 25% cloud cover"
+1,Eastern Whip-poor-will,\N,2012-04-11 20:09:48,2012-04-11 20:09:48,EWPW,,Mostly Cloudy,"Many clouds, 25-50% cloud cover"
+,,,,,,,Overcast,"Dense cloud cover, entire sky covered. Should not conduct survey."

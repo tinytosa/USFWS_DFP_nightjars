@@ -8,3 +8,6 @@ usethis::create_github_token()
 gitcreds::gitcreds_set()
 
 #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
+
+#in terminal because SSL certificate failed
+#git config --global http.sslbackend schannel

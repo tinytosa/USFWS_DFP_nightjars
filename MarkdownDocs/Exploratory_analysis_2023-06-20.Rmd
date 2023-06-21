@@ -47,6 +47,8 @@ format data so easier to work with later
 #raw files
 nsn <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
 #duplicate routeid when there are stops 1-11
+  nsn.all <- nsn
+  nsn <- nsn[nsn$Stop == 1 | nsn$Routeid == 981234,] #subset for first stop in each route, no Stop 1 for 981234
 
 rt.id <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Route ID.csv")
 
@@ -60,6 +62,13 @@ nsn.time <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Ti
   nsn.time <- separate(nsn.time, col="start_date",
                        into=c("start_year","start_month","start_day"),
                        sep="-", remove=F)
+  
+  unique(nsn.time[nsn.time$route_id < 10000,]$route_id)
+  # unique(nsn.time[nsn.time$route_id < 100000,]$route_id)
+  
+  #correct these route_ids
+  nsn.time[nsn.time$route_id == 6101,]$route_id <- 60101
+  nsn.time[nsn.time$route_id == 6051,]$route_id <- 60051
 
 nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Observations.csv")
 
@@ -86,18 +95,22 @@ nsn$rt_code <- substr(nsn$Routeid.char, 3, 6)
 #determine states manually using graphing of points below
 
 summary(nsn)
-nsn.sf <- st_as_sf(nsn, coords=c("Latitude","Longitude"), crs=projection(AF_states))
+nsn.sf <- st_as_sf(nsn, coords=c("Latitude","Longitude"),
+                   crs=projection(AF_states))
 plot(nsn.sf)
 
 # unique(nsn$Routeid)
 
 # plot(nsn.sf[grep(nsn.sf$Routeid, pattern="^02"),])
 
-base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_states) + theme_bw() + theme(panel.grid=element_blank())
+base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") +
+  geom_sf(data=AF_states) + theme_bw() +
+  theme(panel.grid=element_blank())
 # base.plot + geom_sf(data=nsn.sf[nsn.sf$st_code == "98",])
 
 #read csv file back in
-nsn.state.codes <- read.csv("../Data_raw/NSN_routeid_codes.csv", colClasses = "character")
+nsn.state.codes <- read.csv("../Data_raw/NSN_routeid_codes.csv",
+                            colClasses = "character")
 
 nsn <- merge(nsn, nsn.state.codes, by.x="st_code",
              by.y="routeid_code", all.x=T)
@@ -132,10 +145,11 @@ unique(rt.id[,c("state","st_code")])
 #other corrections
 rt.id[rt.id$st_code == 36 & rt.id$state == "ID",]$state <- "IA" #is this correct???
 
-# rt.id[rt.id$state == "FL" & rt.id$st_code == "02",]
-# rt.id <- rt.id[rt.id$state %in% AF_states$ST,]
-# table(rt.id$state)
-
+#check for duplicated rt.id$corrected
+rt.id[duplicated(rt.id$corrected),]
+nrow(rt.id)
+rt.id <- rt.id[!duplicated(rt.id$corrected),]
+nrow(rt.id) #removed 68 rows
 ```
 
 ##Try merging NSN data together to create master data frame
@@ -145,31 +159,34 @@ rt.id[rt.id$st_code == 36 & rt.id$state == "ID",]$state <- "IA" #is this correct
 #don't do this with original rt.id data frame since unmatched routeIDs
 
 #this rt.id has location information already
-master <- merge(rt.id, nsn, all=T, by.x="route_id.char",
-                by.y="Routeid.char", suffixes=c("",".rtid"))
+master <- merge(rt.id, nsn, all=T,
+                by.x="route_id.char", by.y="Routeid.char",
+                suffixes=c("",".rt"))
 #if has lat/long, then good, if not need to fix, add to NSN_rotueid_corrections.csv
-write.table(master[is.na(master$Longitude),][,c("original","id","state")], sep=",", file="../Data_raw/nsn_routeid_tofix_2.txt", row.names=F)
 
-master <- merge(master, nsn.time, by.x="id", by.y="route_id", 
+  # master[is.na(master$Latitude) & master$state %in% AF_states$ST,]
+  #data from Atlantic Flyway that doesn't have location information
+  
+  master[duplicated(master$corrected),]$route_id.char
+  #"259249" "550037" "880001" #all of these have NA original & correct
+  # master[master$route_id.char %in% c("259249"),]
+
+master <- merge(master, nsn.time, by.x="corrected", by.y="route_id", 
                 all=T, suffixes=c("",".time"))
-master <- merge(master, nsn.sampling, by.x="id.time",
+master <- merge(master, nsn.sampling, by.x="id",
                 by.y="survey_id", all=T, suffixes=c("",".sampling"))
 master <- merge(master, nsn.obs, by.x="id.sampling",
                 by.y="survey_stop_id", all=T, suffixes=c("",".obs"))
-master <- merge(master, nsn, by.x="", by.y="", all=T, suffixes=c("",".rt"))
+master <- merge(master, nsn.sp, all.x=T, by.x="species_id", by.y="id",
+                suffixes=c("",".sp"))
 
-unique(master[is.na(master$id),]$id.time) #route sampling info and time/miles info, but no route info, no route id
+# unique(master[is.na(master$id),]$route_id.char) #route sampling info and time/miles info, but no route info, no route id
 #are these duplicated entries?
 #221
 
 #do this once
-# write.table(unique(master[is.na(master$id),]$id.time), 
-#             file="../Data_processed/no_route_info_obs.txt", sep=",",
-#             row.names=F)
-# 
-# write.table(master, file="../Data_processed/master_2023-06-21.txt",
+# write.table(master, file="../Data_processed/master_nsn_2023-06-21.txt",
 #             sep=",", row.names=F)
-
 ```
 
 ## Raw data from non-Nightjar Survey Network
@@ -196,16 +213,62 @@ nrow(non.nsn.sites[non.nsn.sites$created_at == "",])
 
 #some sites in the NE don't have created_at date times
 # non.nsn.sites <- non.nsn.sites[!is.na(non.nsn.sites$Route.Latitude) & non.nsn.sites$created_at != "",] 
+```
 
-non.nsn.sites <- non.nsn.sites[non.nsn.sites$state %in% unique(AF_states$ST),]
+##Make master file of non-NSN sites and observations
+NH sites: non.nsn.sites$id == non.nsn$route ish
+  non.nsn.sites$id has - between state and site name
+  
+```{r, echo=T}
+unique(non.nsn$state)
 
-non.nsn.sites.sf <- st_as_sf(non.nsn.sites[!is.na(non.nsn.sites$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
+nh.sites <- non.nsn.sites[non.nsn.sites$state == "NH",]
+  nh.sites$id <- gsub(nh.sites$id, pattern="-", replacement="")
+nh.obs <- non.nsn[non.nsn$state == "NH",]
+nh <- merge(nh.sites, nh.obs, all=T,
+            by.x=c("id","Route.Stop","state"),
+            by.y=c("route","stop","state"))
+nh[is.na(nh$species),]$species <- "NONE"
+nh[nh$species == "WHWP",]$species <- "EWPW"
 
-base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_states) + theme_bw() + theme(panel.grid=element_blank())
-base.plot + geom_sf(data=non.nsn.sites.sf)
 
-af.plot <- ggplot() + geom_sf(data=AF_states, fill="white") + theme_bw() + theme(panel.grid=element_blank())
-af.plot
-af.plot + geom_sf(data=non.nsn.sites.sf)
+ny.sites <- non.nsn.sites[non.nsn.sites$state == "NY",]
+ny.obs <- non.nsn[non.nsn$state == "NY",]
+  #need to correct route information so it matches ny.sites
+  ny.correct <- read.csv("../Data_raw/combined_corrections.csv")
+  ny.obs <- merge(ny.obs, ny.correct[,c("route","correct")],
+                  by="route", all.x=T)
+ny <- merge(ny.sites, ny.obs, all=T,
+            by.x=c("name","Route.Stop","state"),
+            by.y=c("correct","stop","state"))
+ny[is.na(ny$species),]$species <- "NONE"
+ny[ny$species == "-",]$species <- "NONE"
+ny$species <- toupper(ny$species)
+  #need to correct species codes to match other data files
+  ny.sp <- read.csv("../Data_raw/combined_sp_key.csv")
+  ny <- merge(ny.sp[,c("original_code","code")], ny, 
+              by.y="species", by.x="original_code", all.y=T)
+  names(ny) <- c("original_code","species", names(ny)[3:25])
 
+non.nsn.master <- rbind(nh, ny[,names(nh)])
+
+#only run once
+# write.table(non.nsn.master, file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", row.names=F)
+```
+
+```{r, echo=F}
+##Map non NSN sites in Atlantic flyway
+#not relevant anymore. only observations were in NY and NH in obs file
+# #subset non.nsn.sites to only Atlantic flyway sites
+# non.nsn.sites <- non.nsn.sites[non.nsn.sites$state %in%
+#                                  unique(AF_states$ST),]
+# 
+# non.nsn.sites.sf <- st_as_sf(non.nsn.sites[!is.na(non.nsn.sites$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
+# 
+# base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_states) + theme_bw() + theme(panel.grid=element_blank())
+# base.plot + geom_sf(data=non.nsn.sites.sf)
+# 
+# af.plot <- ggplot() + geom_sf(data=AF_states, fill="white") + theme_bw() + theme(panel.grid=element_blank())
+# af.plot
+# af.plot + geom_sf(data=non.nsn.sites.sf)
 ```

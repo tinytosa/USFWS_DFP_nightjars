@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 #load packages
 
 #for playing with data
+require(tidyr) #for separate
 
 #for GIS
 require(sf)
@@ -40,14 +41,39 @@ plot(BCR)
 ```
 
 ## Raw data from Nightjar Survey Network
+format data so easier to work with later
 
 ```{r, echo=T}
+#raw files
 nsn <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
+#duplicate routeid when there are stops 1-11
+
 rt.id <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Route ID.csv")
 
-#rt.id id numbers to fix
-rt.id.correct <- read.csv("../Data_raw/NSN_routeid_corrections.csv", colClasses = "character")
+nsn.sp <- read.csv("../Data_raw/NSN_sp_key.csv")
 
+nsn.time <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Time and Miles.csv")
+  nsn.time <- separate(nsn.time, col="start_time", remove=F,
+                       into=c("start_date","start_hour"), sep=" ")
+  nsn.time <- separate(nsn.time, col="end_time", remove=F,
+                       into=c("end_date","end_hour"), sep=" ")
+  nsn.time <- separate(nsn.time, col="start_date",
+                       into=c("start_year","start_month","start_day"),
+                       sep="-", remove=F)
+
+nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Observations.csv")
+
+nsn.sampling <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Sampling.csv")
+
+nsn.old <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Old Routes.csv")
+
+#rt.id id numbers to fix
+rt.id.correct <- read.csv("../Data_raw/NSN_routeid_corrections.csv",
+                          colClasses = "character")
+```
+
+##Fix unmatched route id so matches routes (and location information)
+```{r, echo=T}
 #########
 #routes
 
@@ -73,7 +99,8 @@ base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_stat
 #read csv file back in
 nsn.state.codes <- read.csv("../Data_raw/NSN_routeid_codes.csv", colClasses = "character")
 
-nsn <- merge(nsn, nsn.state.codes, by.x="st_code", by.y="routeid_code", all.x=T)
+nsn <- merge(nsn, nsn.state.codes, by.x="st_code",
+             by.y="routeid_code", all.x=T)
 
 #########
 #route id
@@ -85,24 +112,63 @@ rt.id$route_id.char <- sprintf("%06i", rt.id$id)
 rt.id$st_code <- substr(rt.id$route_id.char, 0,2)
 rt.id$rt_code <- substr(rt.id$route_id.char, 3,6)
 
-verify <- unique(rt.id[,c("state","st_code")])
+# verify <- unique(rt.id[,c("state","st_code")])
 # write.table(verify[duplicated(verify$state),], sep=",", file = "../Data_raw/nsn_routeid_tofix.txt", row.names=F)
 
 #read in corrected file and correct id numbers so they match nsn routes.csv
-rt.id <- merge(rt.id.correct[,c("original","corrected")], rt.id, by.x="original", by.y="route_id.char", all.y=T)
+rt.id <- merge(rt.id.correct[,c("original","corrected")], rt.id,
+               by.x="original", by.y="id", all.y=T)
 rt.id[is.na(rt.id$corrected),]$corrected <- rt.id[is.na(rt.id$corrected),]$original
 
-rt.id$st_code <- substr(rt.id$corrected, 0,2)
-rt.id$rt_code <- substr(rt.id$corrected, 3,6)
+rt.id$route_id.char <- sprintf("%06i", as.integer(rt.id$corrected))
+rt.id$st_code <- substr(rt.id$route_id.char, 0,2)
+rt.id$rt_code <- substr(rt.id$route_id.char, 3,6)
 
 unique(rt.id[,c("state","st_code")])
 
 #NY, ME, MA, WI, NH, DE, VT, and AZ all have 00 state codes
 
+######
+#other corrections
+rt.id[rt.id$st_code == 36 & rt.id$state == "ID",]$state <- "IA" #is this correct???
 
 # rt.id[rt.id$state == "FL" & rt.id$st_code == "02",]
 # rt.id <- rt.id[rt.id$state %in% AF_states$ST,]
 # table(rt.id$state)
+
+```
+
+##Try merging NSN data together to create master data frame
+```{r, echo=T}
+# master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
+#                 suffixes=c(".rt","rtid"))
+#don't do this with original rt.id data frame since unmatched routeIDs
+
+#this rt.id has location information already
+master <- merge(rt.id, nsn, all=T, by.x="route_id.char",
+                by.y="Routeid.char", suffixes=c("",".rtid"))
+#if has lat/long, then good, if not need to fix, add to NSN_rotueid_corrections.csv
+write.table(master[is.na(master$Longitude),][,c("original","id","state")], sep=",", file="../Data_raw/nsn_routeid_tofix_2.txt", row.names=F)
+
+master <- merge(master, nsn.time, by.x="id", by.y="route_id", 
+                all=T, suffixes=c("",".time"))
+master <- merge(master, nsn.sampling, by.x="id.time",
+                by.y="survey_id", all=T, suffixes=c("",".sampling"))
+master <- merge(master, nsn.obs, by.x="id.sampling",
+                by.y="survey_stop_id", all=T, suffixes=c("",".obs"))
+master <- merge(master, nsn, by.x="", by.y="", all=T, suffixes=c("",".rt"))
+
+unique(master[is.na(master$id),]$id.time) #route sampling info and time/miles info, but no route info, no route id
+#are these duplicated entries?
+#221
+
+#do this once
+# write.table(unique(master[is.na(master$id),]$id.time), 
+#             file="../Data_processed/no_route_info_obs.txt", sep=",",
+#             row.names=F)
+# 
+# write.table(master, file="../Data_processed/master_2023-06-21.txt",
+#             sep=",", row.names=F)
 
 ```
 
@@ -133,9 +199,13 @@ nrow(non.nsn.sites[non.nsn.sites$created_at == "",])
 
 non.nsn.sites <- non.nsn.sites[non.nsn.sites$state %in% unique(AF_states$ST),]
 
-plot(non.nsn.sites$Route.Longitude, non.nsn.sites$Route.Latitude)
+non.nsn.sites.sf <- st_as_sf(non.nsn.sites[!is.na(non.nsn.sites$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
 
+base.plot <- ggplot() + geom_sf(data=nsn.sf, col="white") + geom_sf(data=AF_states) + theme_bw() + theme(panel.grid=element_blank())
+base.plot + geom_sf(data=non.nsn.sites.sf)
 
-
+af.plot <- ggplot() + geom_sf(data=AF_states, fill="white") + theme_bw() + theme(panel.grid=element_blank())
+af.plot
+af.plot + geom_sf(data=non.nsn.sites.sf)
 
 ```

@@ -1,0 +1,63 @@
+StateNum,StateName,StateAbb
+02,Alabama,AL
+03,Alaska,AK
+04,Alberta,ALB
+06,Arizona,AZ
+07,Arkansas,AR
+11,British Columbia,BRTCOL
+14,California,CA
+17,Colorado,CO
+18,Connecticut,CT
+21,Delaware,DE
+25,Florida,FL
+27,Georgia,GA
+33,Idaho,ID
+34,Illinois,IL
+35,Indiana,IN
+36,Iowa,IA
+38,Kansas,KS
+39,Kentucky,KY
+42,Louisiana,LA
+43,Northwest Territories,NWT
+44,Maine,ME
+45,Manitoba,MAN
+46,Maryland,MD
+47,Massachusetts,MA
+49,Michigan,MI
+50,Minnesota,MN
+51,Mississippi,MS
+52,Missouri,MO
+53,Montana,MT
+54,Nebraska,NE
+55,Nevada,NV
+56,New Brunswick,NEWBRU
+57,Newfoundland and Labrador,NEWFOU
+58,New Hampshire,NH
+59,New Jersey,NJ
+60,New Mexico,NM
+61,New York,NY
+62,Nunavut,NUN
+63,North Carolina,NC
+64,North Dakota,ND
+65,Nova Scotia,NOVA
+66,Ohio,OH
+67,Oklahoma,OK
+68,Ontario,ONT
+69,Oregon,OR
+72,Pennsylvania,PA
+75,Prince Edward Island,PEI
+76,Quebec,QUE
+77,Rhode Island,RI
+79,Saskatchewan,SAS
+80,South Carolina,SC
+81,South Dakota,SD
+82,Tennessee,TN
+83,Texas,TX
+85,Utah,UT
+87,Vermont,VT
+88,Virginia,VA
+89,Washington,WA
+90,West Virginia,WV
+91,Wisconsin,WI
+92,Wyoming,WY
+93,Yukon,YUK

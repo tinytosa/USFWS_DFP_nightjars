@@ -1,0 +1,25 @@
+---
+title: "3_NSNvsBBS"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#for GIS
+require(sf)
+require(raster)
+
+```
+
+## Load data
+```{r, echo=T}
+
+```
+
+## 
+```{r, echo=T}
+
+```

@@ -1,0 +1,176 @@
+---
+title: "2_Breeding Bird Survey Data"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+
+#load packages
+
+#for playing with data
+require(tidyr) #for separate
+require(plyr) #for ddply
+
+#for GIS
+require(sf)
+require(raster)
+
+#for plotting
+require(ggplot2)
+require(RColorBrewer)
+```
+
+## GIS layers
+Look at states within the Atlantic Flyway and the Bird Conservation Regions (BCR)
+```{r}
+
+AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
+BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+#these are in NAD 83, longlat
+
+plot(AF_states)
+plot(BCR)
+
+BCR$BCRNumber
+#14 13 30 28 29 27 31
+
+BCR$BCRNumber <- factor(BCR$BCRNumber)
+
+```
+
+## Breeding Bird Survey Data
+https://www.pwrc.usgs.gov/bbs/index.cfm
+
+Download data: Raw results > Retrieve Raw Data > Proceed to ScienceBase > 2022 Release - North American Breeding Bird Survey
+Download all files, extract from zip files, and load here
+
+```{r, echo=T}
+rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
+  rt <- rt[rt$BCR %in% BCR$BCRNumber,]
+  table(rt[,c("Active","BCR")]) #number of routes in each BCR
+  table(rt$StateNum) #number of routes in each state
+  
+  rt$Active <- factor(rt$Active)
+  rt$StateNum <- factor(rt$StateNum)
+  rt$BCR <- factor(rt$BCR)
+  
+  rt$ct.st.rt <- paste(rt$CountryNum, rt$StateNum, rt$Route, sep="-")
+
+rt.sf <- st_as_sf(rt, coords=c("Longitude","Latitude"), crs=projection(AF_states))
+nrow(rt)
+#1685 routes in BBS in BCRs of AF states
+
+# write.table(rt, file="../Data_processed/BBS_2022/AF_BBS_routes.txt", sep=",", row.names=F)
+
+sp.list <- read.csv("../Data_raw/BBS_2022/sp_list_nightjars_bbs.csv") #only Caprimulgidae
+
+st.key <- read.csv("../Data_raw/BBS_state_key.csv")
+
+#match data based on CountryNum, StateNum, and Route
+bbs.obs.list <- dir(path="../Data_raw/BBS_2022/50-StopData/1997ToPresent_SurveyWide/", full.names=T, pattern=".csv")
+
+#only need to do once
+# bbs.obs <- data.frame()
+# for(f in bbs.obs.list)
+# {
+#   print(f)
+#   obs <- read.csv(f)
+#     og <- nrow(obs)
+#   obs <- obs[obs$AOU %in% sp.list$AOU,]
+#     aou <- nrow(obs)
+#   obs$ct.st.rt <- paste(obs$CountryNum, obs$StateNum, obs$Route, sep="-") #create column with country number, state number, and route number
+#   obs <- obs[obs$ct.st.rt %in% rt$ct.st.rt,]
+#     print(paste(og, aou, nrow(obs)))
+#   bbs.obs <- rbind(bbs.obs, obs)
+# }
+# 
+# nrow(bbs.obs) #7531 observations
+# 
+# bbs.obs <- merge(bbs.obs, rt,
+#                  by=c("CountryNum","StateNum","Route","ct.st.rt"), all.x=T)
+# bbs.obs <- merge(bbs.obs, sp.list[,c("AOU","code")], by="AOU", all.x=T)
+
+# write.table(bbs.obs, file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
+#             sep=",", row.names=F)
+
+bbs.obs <- read.table(file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
+                      sep=",", header=T)
+bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
+                       crs=projection(AF_states))
+
+```
+
+## Plot data
+```{r, echo=T}
+
+#map of state in Atlantic flyway
+base.st <- ggplot() + 
+  geom_sf(data=AF_states, fill="NA", col="black") +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+#maps of states, labeled with 2 letter abbreviations
+state.plot <- 
+  base.st + geom_sf_text(data=AF_states, aes(label=ST)) + xlab("") + ylab("")
+# ggsave(state.plot, filename="../Figures/states.tiff", height=10, width=8,
+#        units="in", dpi=400, compression="lzw")
+
+#map of BCRs and corresponding numbers with state outlines
+bcr.plot <- base.st + 
+  geom_sf(data=BCR, aes(fill=BCRNumber), col=NA) +
+  geom_sf(data=AF_states, fill="NA", col="grey90") +
+  geom_sf_text(data=BCR, aes(label=BCRNumber)) +
+  scale_fill_brewer(palette="Set2") + xlab("") + ylab("") +
+  theme(legend.position=c(0.2,0.85))
+# ggsave(bcr.plot, filename="../Figures/bcr.tiff", height=10, width=8, units="in",
+#        dpi=400, compression="lzw")
+
+#map of all active BBS surveys
+bbs.state.plot <- base.st + 
+  geom_sf(data=rt.sf, aes(col=StateNum, shape=Active)) +
+  scale_shape_manual(values=c(2, 16)) +
+  geom_sf_text(data=rt.sf[!duplicated(rt.sf$StateNum),], aes(label=StateNum)) +
+  xlab("") + ylab("") +
+  theme(legend.position="top")
+# ggsave(bbs.state.plot, file="../Figures/BBS/BBS_all_active_surveys.tiff",
+#        height=10, width=8, units="in", dpi=400, compression="lzw")
+
+base.st + geom_sf(data=rt.sf, aes(col=BCR, shape=Active)) +
+  scale_shape_manual(values=c(2, 16))
+
+#####
+#plot of surveys with nightjars from BBS
+bbs.plot <- base.st + 
+  geom_sf(data=rt.sf[rt.sf$Active %in% c(1),], pch=1, col="grey75", size=0.5) +
+  geom_sf(data=bbs.obs.sf[bbs.obs.sf$code %in%
+                                                c("CWWI","EWPW","CONI"),], 
+                              aes(col=code)) +
+  facet_wrap(~code, nrow=1) + theme(legend.position = "none")
+
+# ggsave(bbs.plot, file="../Figures/BBS/BBS_all_nightjar_detections.tiff",
+#        height=10, width=20, units="in", dpi=400, compression="lzw")
+```
+
+## Summarize data for each state and each BCR
+```{r, echo=T}
+
+rt <- merge(rt, st.key, all.x=T, by="StateNum")
+
+st.bcr.stats <- ddply(rt[rt$Active == 1,],
+                  .(StateNum, StateName, StateAbb, BCR),
+                  summarize, NumBBSRoutes=length(Route))
+st.bcr.stats$TotalBBSRoutes <- nrow(rt[rt$Active == 1,])
+st.bcr.stats$Prop.BBS.Routes <- round(st.bcr.stats$NumBBSRoutes/st.bcr.stats$TotalBBSRoutes,
+                                  digits=3)
+
+#calculate number of sites for state for different number of surveys to be conducted
+st.bcr.stats$nsn1k <- st.bcr.stats$Prop.BBS.Routes*1000
+st.bcr.stats$nsn2k <- st.bcr.stats$Prop.BBS.Routes*2000
+st.bcr.stats$nsn3k <- st.bcr.stats$Prop.BBS.Routes*3000
+
+# write.table(st.bcr.stats,
+#             file="../Data_processed/nsn_sites_per_state_bcr_by_bbs.txt", 
+#             sep=",", row.names=F)
+```

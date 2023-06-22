@@ -38,6 +38,9 @@ BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
 plot(AF_states)
 plot(BCR)
 
+BCR$BCRNumber
+#14 13 30 28 29 27 31
+
 ```
 
 ## Raw data from Nightjar Survey Network

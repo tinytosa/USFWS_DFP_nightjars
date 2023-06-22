@@ -24,6 +24,16 @@ require(ggplot2)
 ```{r echo=T}
 master.nsn <- read.table(file="../Data_processed/master_nsn_2023-06-21.txt", sep=",", header=T)
 master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
+
+rt <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
+#duplicate routeid when there are stops 1-11
+#Latitude and Longitude are flipped
+
+  #convert 5 digit route id to 6 digit
+  rt$Routeid.char <- sprintf("%06i", rt$Routeid)
+  rt$st_code <- substr(rt$Routeid.char, 0, 2)
+  rt$rt_code <- substr(rt$Routeid.char, 3, 6)
+
 ```
 
 ##load GIS layers
@@ -40,8 +50,8 @@ BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
 nsn <- master.nsn[!is.na(master.nsn$Latitude),]
 na.nsn <- master.nsn[is.na(master.nsn$Latitude),]
 
-nrow(master.nsn)
-nrow(nsn)
+nrow(master.nsn) #71,307 rows
+nrow(nsn)        #44,503 rows
 
 af.nsn <- master.nsn[master.nsn$state %in% AF_states$ST,]
 af.nsn$species <- af.nsn$code
@@ -60,10 +70,10 @@ nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #3,398 rows
 nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
 
 #combine nsn and non-nsn survey data
-nsn.locs <- af.nsn[,c("Latitude","Longitude","start_year")]
-names(nsn.locs) <- c("Longitude","Latitude","year")
-nonnsn.locs <- master.nonnsn[,c("Route.Longitude","Route.Latitude","year")]
-names(nonnsn.locs) <- c("Longitude","Latitude","year")
+nsn.locs <- af.nsn[,c("Latitude","Longitude","start_year","route_id.char")]
+  names(nsn.locs) <- c("Longitude","Latitude","year","route_id.char")
+nonnsn.locs <- master.nonnsn[,c("Route.Longitude","Route.Latitude","year","name")]
+  names(nonnsn.locs) <- c("Longitude","Latitude","year","route_id.char")
 
 all.locs <- rbind(nsn.locs, nonnsn.locs)
 all.locs.sf <- st_as_sf(all.locs[!is.na(all.locs$Longitude),], 
@@ -82,7 +92,7 @@ p.all <- base +
   geom_sf(data=af.nsn.sf, col="steelblue") + 
   geom_sf(data=nonnsn.sf, col="navy")
 p.all
-# ggsave(p.all, filename="../Figures/all_surveys.tiff", height=10, width=8,
+# ggsave(p.all, filename="../Figures/NSN/all_surveys.tiff", height=10, width=8,
 #        units="in", dpi=400, compression="lzw")
 
 base2 <- base + 
@@ -96,9 +106,9 @@ for(sp in unique(af.nsn$code)[1:5])
                   aes(col=code), size=2) + 
           geom_sf(data=nonnsn.sf[nonnsn.sf$species %in% sp,],
                   aes(col=species), size=2)
-  ggsave(sp.map, 
-         filename=paste("../Figures/all_surveys_", sp, ".tiff", sep=""),
-         height=10, width=8, units="in", dpi=400, compression="lzw")
+  # ggsave(sp.map, 
+  #        filename=paste("../Figures/NSN/all_surveys_", sp, ".tiff", sep=""),
+  #        height=10, width=8, units="in", dpi=400, compression="lzw")
 }
 
 sp.map <- base2 + 
@@ -108,8 +118,8 @@ sp.map <- base2 +
                   aes(col=species), size=1) +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 
-ggsave(sp.map, filename="../Figures/all_surveys_sp.tiff", height=8, width=20,
-       units="in", dpi=400, compression="lzw")
+# ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp.tiff", height=8, width=20,
+#        units="in", dpi=400, compression="lzw")
 
 for(y in 2008:2022)
 {
@@ -122,21 +132,94 @@ for(y in 2008:2022)
                   aes(col=species), size=1) +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 
-ggsave(sp.map, filename=paste("../Figures/all_surveys_sp_", y, ".tiff", sep=""),
-       height=8, width=20, units="in", dpi=400, compression="lzw")
+# ggsave(sp.map, filename=paste("../Figures/NSN/all_surveys_sp_", y, ".tiff", sep=""),
+#        height=8, width=20, units="in", dpi=400, compression="lzw")
 }
 
 ```
 
+## plot current routes (2019-present)
+
+```{r, echo=T}
+#include all stops on routes
+y <- 2019:2023
+rt.sf <- st_as_sf(rt, coords=c("Latitude","Longitude"), crs=projection(AF_states))
+
+#subsetted below, so not necessary
+# rt.current.sf <- rt.sf[rt.sf$Routeid.char %in% 
+#                          unique(all.locs[all.locs$year %in% y,]$route_id.char),]
+
+sp.map <- base + 
+    geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
+          pch=1, col="black", size=0.5, stroke=0.1) +
+    geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
+                         unique(all.locs[all.locs$year %in% y,]$route_id.char),],
+            pch=1, col="black", size=0.5, stroke=0.1) +
+    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
+                  aes(col=species), size=1) + 
+    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
+                  aes(col=species), size=1) +
+    facet_wrap(~species, nrow=1) + theme(legend.position = "none")
+sp.map
+
+# ggsave(sp.map, filename=paste("../Figures/NSN/2019-2023_surveys_sp.tiff",
+#                               sep=""),
+#        height=8, width=20, units="in", dpi=400, compression="lzw")
+```
+
 ## plot each state separately
 ```{r, echo=T}
+y <- 2019:2023
+nonnsn.sf$year <- factor(nonnsn.sf$year) #convert to factor, so not continuous colors
+
 for(s in AF_states$ST)
 {
-  p <- ggplot() + 
-    geom_sf(data=AF_states[AF_states$ST == s,], fill=NA) + 
-    geom_sf(data=af.nsn.sf[af.nsn.sf$state == s,], col="steelblue") + 
-    geom_sf(data=nonnsn.sf[nonnsn.sf$state == s,], col="navy") + 
-    theme_bw() + theme(panel.grid=element_blank())
-  print(p)
+  if(s %in% c("CT","DC","DE","ME","MA","NJ","RI","VT"))
+  {
+    next
+  }
+  #state outline
+  ex <- extent(AF_states[AF_states$ST == s,])
+  base.st <-  ggplot() + 
+    geom_sf(data=AF_states, fill=NA) + 
+    theme_bw(base_size = 20) + 
+    theme(panel.grid=element_blank(), legend.position = "none")
+  
+  #maps of all survey locations
+  p.all <- base.st +
+    geom_sf(data=af.nsn.sf[af.nsn.sf$state == s,], aes(col=start_year),
+            pch=1, size=0.5, stroke=1, fill=NA) + 
+    geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
+                         unique(all.locs[all.locs$year %in% y,]$route_id.char),],
+            col="grey50", pch=1, size=0.5, stroke=1, fill=NA) +
+    geom_sf(data=nonnsn.sf[nonnsn.sf$state == s,], aes(col=year),
+            pch=1, size=0.5, stroke=1, fill=NA) +
+    theme(legend.position="top") +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
+  # print(p.all)
+  # ggsave(p.all,
+  #        filename=paste("../Figures/NSN/surveys_by_state/", s, "_all_surveys.tiff", sep=""),
+  #      height=10, width=8, units="in", dpi=400, compression="lzw")
+  
+  #maps of current survey locations and detections of species
+  p.sp <- base.st +
+    geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
+          pch=1, col="black", size=0.5, stroke=0.1) +
+    geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
+                         unique(all.locs[all.locs$year %in% y,]$route_id.char),],
+            pch=1, col="black", size=0.5, stroke=0.1) +
+    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
+                  aes(col=species), size=1) + 
+    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
+                  aes(col=species), size=1) +
+    facet_wrap(~species, nrow=1) +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
+  
+  # ggsave(p.sp,
+  #        filename=paste("../Figures/NSN/surveys_by_state/",s,"_2019-2023_surveys_sp.tiff", sep=""),
+  #      height=8, width=20, units="in", dpi=400, compression="lzw")
 }
+
+
+
 ```

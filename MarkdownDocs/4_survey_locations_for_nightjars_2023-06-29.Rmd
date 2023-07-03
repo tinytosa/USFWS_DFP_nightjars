@@ -1,0 +1,33 @@
+---
+title: "4_survey locations for nightjars"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#for GIS
+require(sf)
+require(raster)
+
+#for plotting
+require(ggplot2)
+require(ggrepel)
+
+BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
+unique(BCR.ST$ST)
+```
+
+## Load road data
+```{r, echo=T}
+road.files <- dir("../../GIS/tigerline_roads/", pattern=".shp$", full.names=F)
+
+for(f in roadfiles)
+{
+  print(f)
+  r <- read_sf(dsn="../../GIS/tigerline_roads", layer=gsub(f, pattern=".shp", replacement=""))
+}
+
+```

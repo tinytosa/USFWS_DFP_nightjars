@@ -14,10 +14,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #for playing with data
 require(tidyr) #for separate
+require(readxl)
+require(dplyr) #for bind_rows
 
 #for GIS
 require(sf)
 require(raster)
+require(units)
 
 #for plotting
 require(ggplot2)
@@ -32,15 +35,50 @@ Look at states within the Atlantic Flyway and the Bird Conservation Regions (BCR
 ```{r}
 
 AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
-BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+# BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip") #don't use this one. not up to date. This one was from Tony Roberts
 #these are in NAD 83, longlat
+
+BCR.all <- read_sf(dsn="../../GIS/BCR_Terrestrial", layer="BCR_Terrestrial_master") #https://nabci-us.org/resources/bird-conservation-regions-map/
+#http://www.birdscanada.org/research/gislab/index.jsp?targetpg=bcr
+
+AF_states.df <- AF_states
+st_geometry(AF_states.df) <- NULL
+AF_states.df$STATE_NAME <- toupper(AF_states.df$STATE_NAME)
+
+BCR.AF <- BCR.all[BCR.all$PROVINCE_S %in% toupper(AF_states$STATE_NAME),]
+BCR.AF <- merge(BCR.AF, AF_states.df[,c("STATE_NAME","ST")], 
+                by.x="PROVINCE_S", by.y="STATE_NAME", all.x=T)
+BCR.AF <- st_collection_extract(BCR.AF, "POLYGON")
+BCR.AF$AreaSqMi <- set_units(st_area(BCR.AF), "mi^2")
+
+# st_write(BCR.AF, "../../GIS/BCR-state.shp", append=F) #to save
+
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #Area in m^2
 
 plot(AF_states)
 plot(BCR)
 
-BCR$BCRNumber
+unique(BCR$BCR)
+#7 BCRs
 #14 13 30 28 29 27 31
 
+AF_states$ST
+#18 states
+# "CT" "DE" "DC" "FL" "GA" "ME" "MD" "MA" "NH" "NJ" "NY" "NC" "PA" "RI"
+# "SC" "VT" "VA" "WV"
+
+AF_states$AreaSqMi <- set_units(st_area(AF_states), "mi^2")
+
+#don't need to do this with the new BCR shapefile from 
+#create polygon shapefile with each state cut by BCR
+# BCR.ST <- st_intersection(AF_states, BCR)
+# BCR.ST$BCR.ST <- paste(BCR.ST$ST, BCR.ST$BCRNumber, sep=".")
+# BCR.ST <- st_collection_extract(BCR.ST, "POLYGON") #otherwise has polygons, multipolygons, geometrycollection, etc.
+# 
+# sf_use_s2(FALSE)
+# BCR.ST$AreaBS <- set_units(st_area(BCR.ST), "mi^2")
+
+# st_write(BCR.ST, "../../GIS/BCR-state.shp", append=F) #to save
 ```
 
 ## Raw data from Nightjar Survey Network
@@ -156,6 +194,10 @@ nrow(rt.id) #removed 68 rows
 ```
 
 ##Try merging NSN data together to create master data frame
+
+rt.id = 4325 rows
+nsn = 3418 rows
+
 ```{r, echo=T}
 # master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
 #                 suffixes=c(".rt","rtid"))
@@ -176,12 +218,16 @@ master <- merge(rt.id, nsn, all=T,
 
 master <- merge(master, nsn.time, by.x="corrected", by.y="route_id", 
                 all=T, suffixes=c("",".time"))
+nrow(master) #7374 rows
 master <- merge(master, nsn.sampling, by.x="id",
                 by.y="survey_id", all=T, suffixes=c("",".sampling"))
+nrow(master) #49418 rows
 master <- merge(master, nsn.obs, by.x="id.sampling",
                 by.y="survey_stop_id", all=T, suffixes=c("",".obs"))
+nrow(master)
 master <- merge(master, nsn.sp, all.x=T, by.x="species_id", by.y="id",
                 suffixes=c("",".sp"))
+nrow(master)
 
 # unique(master[is.na(master$id),]$route_id.char) #route sampling info and time/miles info, but no route info, no route id
 #are these duplicated entries?
@@ -194,8 +240,34 @@ master <- merge(master, nsn.sp, all.x=T, by.x="species_id", by.y="id",
 
 ## Raw data from non-Nightjar Survey Network
 ```{r, echo=T}
+
+#read in raw data
 non.nsn <- read.csv("../Data_raw/CombinedData/Allobs_noNJN.csv")
 non.nsn.sites <- read.csv("../Data_raw/CombinedData/Allroute_info.csv")
+
+missing.ny.sites <- read.
+
+#read in CT data
+# ct.1 <- read_excel("../Data_raw/CT Whippoorwill Data/WPWL2010.xls",
+#                    sheet="DataSummary4")
+#can also read in DataAnalysisInterval2 for counts by interval
+
+ct.file.list <- dir("../Data_raw/CT Whippoorwill Data",
+                    pattern=".xls", full.names = T)
+ct.data.all <- data.frame()
+for(f in ct.file.list)
+{
+  print(f)
+  ct.data <- read_excel(f, sheet="DataSummary4")
+  ct.data$file <- f
+  ct.data$year <- as.numeric(gsub(gsub(f,
+                  pattern="../Data_raw/CT Whippoorwill Data/WPWL",
+                  replacement=""), pattern=".xls", replacement=""))
+  ct.data.all <- rbind(ct.data.all, ct.data)
+}
+# write.table(file=
+#               "../Data_raw/CT Whippoorwill Data/master_CT_WPWL.txt", 
+#             ct.data.all, sep=",", row.names=F)
 
 #fix incorrect 
 non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude <- -(non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude)
@@ -236,6 +308,13 @@ nh[nh$species == "WHWP",]$species <- "EWPW"
 
 
 ny.sites <- non.nsn.sites[non.nsn.sites$state == "NY",]
+ny.missing.sites <- read.csv("../Data_raw/CombinedData/NY_MissingLocations_fromMattPalumbo.csv")
+  #only need to do below once to convert NAD83 zone 18 to lat/long (copy and pasted into csv file)
+  # ftdrum <- ny.missing.sites[ny.missing.sites$route == "Fort Drum",]
+  # ftdrum.sf <- st_as_sf(ftdrum, coords=c("N","W"), crs=26918)
+  # ftdrum.sf.latlong <- st_transform(ftdrum.sf, crs=crs(AF_states))
+ny.missing.sites <- ny.missing.sites[!is.na(ny.missing.sites$N),]
+
 ny.obs <- non.nsn[non.nsn$state == "NY",]
   #need to correct route information so it matches ny.sites
   ny.correct <- read.csv("../Data_raw/combined_corrections.csv")
@@ -252,11 +331,51 @@ ny$species <- toupper(ny$species)
   ny <- merge(ny.sp[,c("original_code","code")], ny, 
               by.y="species", by.x="original_code", all.y=T)
   names(ny) <- c("original_code","species", names(ny)[3:25])
+  
+vt.sites <- non.nsn.sites[non.nsn.sites$state == "VT",]
+vt.obs <- non.nsn[non.nsn$state == "VT",] #no Vermont observations received as of 6/26/2023
 
-non.nsn.master <- rbind(nh, ny[,names(nh)])
+vt <- merge(vt.sites, vt.obs, all=T,
+            by.x=c("name","Route.Stop","state"),
+            by.y=c("route","stop","state"))
+
+names(nh)
+# "id"              "Route.Stop"      "state"           "name"
+# "created_at"      "updated_at"     "Route.Latitude""Route.Longitude"
+# "year"            "stop_des"        "wind"            "sky" 
+# "noise"           "cars"            "moon"            "dir"           "species"         "min.1"           "min.2"           "min.3"         "min.4"           "min.5"           "min.6"          
+
+#match columns with ny, nh, and vt data
+ct.data.all$stop <- as.numeric(substr(ct.data.all$PointID,
+                           start=nchar(ct.data.all$PointID)-1, 
+                           stop = nchar(ct.data.all$PointID)))
+ct.data.all$species <- "NONE"
+ct.data.all[ct.data.all$MaxCount > 0,]$species <- "EWPW"
+ct.data.all$MaxCount <- as.numeric(ct.data.all$MaxCount)
+
+ct <- data.frame(ct.data.all[,c("PointID","stop","RouteName",
+                 "Latitude","Longitude","year","species","SumCount",
+                 "MaxCount")])
+names(ct) <- c("id","Route.Stop","name",
+               "Route.Latitude","Route.Longitude",
+               "year","species","TotalDetections","MaxDetections")
+ct$state <- "CT"
+ct$Route.Longitude <- -ct$Route.Longitude
+
+non.nsn.master <- rbind(nh, ny[,names(nh)], vt[,names(nh)])
+non.nsn.master$TotalDetections <-
+  rowSums(non.nsn.master[,grep(names(non.nsn.master),
+                               pattern="min.")])
+non.nsn.master$MaxDetections <- 
+  apply(non.nsn.master[,grep(names(non.nsn.master), pattern="min.")],
+        1, function(x) max(x, na.rm=T))
+non.nsn.master[non.nsn.master$MaxDetections == "-Inf",]$MaxDetections <- NA
+non.nsn.master <- bind_rows(non.nsn.master, ct)
 
 #only run once
-# write.table(non.nsn.master, file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", row.names=F)
+# write.table(non.nsn.master,
+#             file="../Data_processed/master_nonnsn_2023-06_21.txt",
+#             sep=",", row.names=F)
 ```
 
 ```{r, echo=F}

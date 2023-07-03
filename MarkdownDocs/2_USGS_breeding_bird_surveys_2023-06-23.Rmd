@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = T)
 #for playing with data
 require(tidyr) #for separate
 require(plyr) #for ddply
+require(dplyr) #for group_by
 
 #for GIS
 require(sf)
@@ -21,6 +22,8 @@ require(raster)
 #for plotting
 require(ggplot2)
 require(RColorBrewer)
+require(viridis)
+require(colorspace)
 ```
 
 ## GIS layers
@@ -47,6 +50,8 @@ https://www.pwrc.usgs.gov/bbs/index.cfm
 Download data: Raw results > Retrieve Raw Data > Proceed to ScienceBase > 2022 Release - North American Breeding Bird Survey
 Download all files, extract from zip files, and load here
 
+BBS does not have data for 2020 because of COVID19
+
 ```{r, echo=T}
 rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
   rt <- rt[rt$BCR %in% BCR$BCRNumber,]
@@ -66,6 +71,8 @@ nrow(rt)
 # write.table(rt, file="../Data_processed/BBS_2022/AF_BBS_routes.txt", sep=",", row.names=F)
 
 sp.list <- read.csv("../Data_raw/BBS_2022/sp_list_nightjars_bbs.csv") #only Caprimulgidae
+#4210 4200 4201 4205 4206 4190 4180 4160 4171 4172 #AOUs of nightjars
+#4200, 4160, 4171 #3 common species in the Atlantic Flyway
 
 st.key <- read.csv("../Data_raw/BBS_state_key.csv")
 
@@ -100,6 +107,14 @@ bbs.obs <- read.table(file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
                       sep=",", header=T)
 bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
                        crs=projection(AF_states))
+
+
+#pick one of these
+# bbs.trends <- read.csv(file="../Data_raw/BBS_2022/BBS_1966-2019_core_trend_best.csv")
+bbs.trends <- read.csv(file="../Data_raw/BBS_2022/BBS_1993-2019_expanded_trend_best.csv")
+
+bbs.index <- read.csv(file="../Data_raw/BBS_2022/Index_Best_1993-2019_expanded.csv")
+bbs.index$X97.5.CI.num <- as.numeric(bbs.index$X97.5.CI)
 
 ```
 
@@ -153,6 +168,45 @@ bbs.plot <- base.st +
 #        height=10, width=20, units="in", dpi=400, compression="lzw")
 ```
 
+## Plot BBS data by year
+```{r, echo=T}
+
+for(y in unique(bbs.obs$Year))
+{
+  print(y)
+  # y <- 2019:2023
+  bbs.plot <- base.st + 
+    geom_sf(data=rt.sf[rt.sf$Active %in% c(1),], pch=1, col="grey75", size=0.5) +
+    geom_sf(data=bbs.obs.sf[bbs.obs.sf$code %in% c("CWWI","EWPW","CONI") &
+                              bbs.obs.sf$Year %in% y,], 
+                                aes(col=code)) +
+    facet_wrap(~code, nrow=1) + theme(legend.position = "none")
+  # ggsave(bbs.plot,
+  #        filename=paste("../Figures/BBS/BBS_byYear/BBS_", y, ".tiff", sep=""), 
+  #        height=10, width=20, units="in", dpi=400, compression="lzw")
+  # ggsave(bbs.plot,
+  #        filename=paste("../Figures/BBS/BBS_byYear/BBS_current_2019-2023.tiff", sep=""),
+  #        height=10, width=20, units="in", dpi=400, compression="lzw")
+}
+
+#for each decade
+for(x in seq(from=1980, to=2020, by=10))
+{
+    # print(x)
+  y <- x:(x+10)
+  bbs.plot <- base.st + 
+    geom_sf(data=rt.sf[rt.sf$Active %in% c(1),], pch=1, col="grey75", size=0.5) +
+    geom_sf(data=bbs.obs.sf[bbs.obs.sf$code %in% c("CWWI","EWPW","CONI") &
+                              bbs.obs.sf$Year %in% y,], 
+                                aes(col=code), alpha=0.25) +
+    facet_wrap(~code, nrow=1) + theme(legend.position = "none")
+  # ggsave(bbs.plot,
+  #        filename=paste("../Figures/BBS/BBS_byDecade/BBS_current_", x,"-", x+10,".tiff", sep=""),
+  #        height=10, width=20, units="in", dpi=400, compression="lzw")
+}
+
+
+```
 ## Summarize data for each state and each BCR
 ```{r, echo=T}
 
@@ -173,4 +227,178 @@ st.bcr.stats$nsn3k <- st.bcr.stats$Prop.BBS.Routes*3000
 # write.table(st.bcr.stats,
 #             file="../Data_processed/nsn_sites_per_state_bcr_by_bbs.txt", 
 #             sep=",", row.names=F)
+```
+
+## Summarize nightjar detection data for each state and each BCR
+what to do across years?
+take average of counts per BCR and state?
+take sum of counts per BCR and state?
+take max of counts per BCR and state?
+what to do with different species? any species?
+
+counts or routes?
+
+average per route over last 5 years
+but BBS only has data up to 2021 and no surveys conducted in 2020
+
+```{r, echo=T}
+#sum all stop values
+bbs.obs$StopTotal <- rowSums(bbs.obs[,grep(names(bbs.obs), pattern="Stop")])
+
+#subset for 5 years of BBS data
+bbs.current <- bbs.obs[bbs.obs$Year >= 2016 & bbs.obs$Active == 1,]
+
+table(bbs.current[,c("ct.st.rt","Year")])
+
+#if using same method as Heusmann and Sauer 1997
+#add up all nightjar detections by stop and year
+njs.current <- ddply(bbs.current, 
+                     .(ct.st.rt, CountryNum, StateNum, Route, Stratum, BCR,
+                       Latitude, Longitude, Year,StateAbb),
+                     function(x) {numcolwise(sum)(x)})
+#check that it worked correctly
+njs.current[njs.current$ct.st.rt == "840-88-914",]
+bbs.current[bbs.current$ct.st.rt == "840-88-914",]
+
+njs.current <- njs.current[,!names(njs.current) %in% c("AOU","RouteDataID","RPID")] #since added AOU codes and no longer valid
+njs.current$meanStops <- njs.current %>% dplyr::select(Stop1:Stop50) %>%
+  rowMeans() #need to get variance too
+
+#average meanStops over all years in current
+njs.current.mean <- ddply(njs.current, .(ct.st.rt, CountryNum, StateNum, StateAbb, Route, Stratum, BCR, Latitude, Longitude), summarize, meanStopsYears=mean(meanStops), meanStopsCt=mean(StopTotal))
+
+#calculate average per BCR and state
+njs.bcr.state <- ddply(njs.current.mean, .(CountryNum, StateNum, StateAbb, BCR),
+                       summarize, meanBCR.ST=mean(meanStopsYears))
+
+#only keep states in Atlantic Flyway
+AF.bcr.state <- njs.bcr.state[njs.bcr.state$StateAbb %in% AF_states$ST,]
+sum.mean <- sum(AF.bcr.state$meanBCR.ST)
+
+AF.bcr.state$nsn1k <- round(AF.bcr.state$meanBCR.ST/sum.mean*1000, digits=0)
+AF.bcr.state$nsn2k <- round(AF.bcr.state$meanBCR.ST/sum.mean*2000, digits=0)
+AF.bcr.state$nsn3k <- round(AF.bcr.state$meanBCR.ST/sum.mean*3000, digits=0) #resulted in 3001 points
+
+# write.csv(AF.bcr.state, file="../Data_processed/sites_per_state-bcr_by_bbs_density.csv", row.names=F)
+
+############
+#to plot
+#convert to sf to plot
+njs.current.mean.sf <- st_as_sf(njs.current.mean, coords=c("Longitude","Latitude"), crs=projection(AF_states))
+
+#840-25-908 is an anomaly site with mean ct per stop = 0.884
+#removed from plots below
+njs.current[njs.current$ct.st.rt=="840-25-908",]
+
+# hclwizard() #create custom color palette
+custom <- diverging_hcl(n = 20, h = c(240, 15), c = c(60, 80), l = c(100, 35), power = c(0.7, 1.5), register = )
+
+ggplot(data=njs.current.mean.sf[njs.current.mean.sf$ct.st.rt != "840-25-908",]) + 
+  geom_sf(data=AF_states, fill=NA, col="grey75") +
+  # geom_sf(aes(col=meanStopsYears), size=2) + 
+  geom_sf(aes(col=meanStopsCt), size=2) + 
+  scale_color_gradientn(colors=custom) +
+  theme_bw(base_size=20) + 
+  theme(panel.grid=element_blank(), legend.position=c(0.85, 0.15))
+# ggsave(filename="../Figures/BBS/BBS_nightjardensity.tiff",
+ggsave(filename="../Figures/BBS/BBS_nightjar_meancounts.tiff",
+        height=10, width=10, units="in", dpi=400, compression="lzw")
+
+ggplot(data=njs.current.mean[njs.current.mean$ct.st.rt != "840-25-908",]) +
+  geom_histogram(aes(x=meanStopsYears)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+# bbs.current.summary <-
+#   bbs.current %>% 
+#     #add up detections per year for all 3 species (CWWI, EWPW, CONI)
+#     group_by(ct.st.rt, Year, StateAbb, BCR, .add=T) %>% 
+#     dplyr::reframe(TotalNJs=sum(StopTotal)) %>%
+#     #average detections across current years (2016-2021)
+#     group_by(ct.st.rt, StateAbb, BCR, .add=T) %>% 
+#     dplyr::reframe(AvgNJs=mean(TotalNJs), countyears=length(TotalNJs))
+# 
+# summary(bbs.current.summary)
+# bbs.current.summary[bbs.current.summary$AvgNJs > 30,]
+# bbs.current[bbs.current$ct.st.rt == "840-25-908",]
+# 
+# ggplot(data=bbs.current.summary) + geom_histogram(aes(x=AvgNJs)) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+```
+
+## BBS hierarchical model trends from Link and Sauer 2020
+
+Credibility Code:
+"R" (Red Indicator). This category reflects data with an important deficiency. In particular: 1. The regional abundance is less than 0.1 birds/route (very low abundance), 2. The sample is based on less than 5 routes for the long term (very small samples), or 3. The results are so imprecise that a 5%/year change (as indicated by the half-width of the credible intervals) would not be detected over the long-term (very imprecise). Users should be aware that a variety of circumstances may lead to imprecise results. For example, imprecise results are sometimes a consequence of a failure of the models to converge in those local areas, even though the model performs adequately in larger regions.
+"Y" (Yellow Indicator). This category reflects data with a deficiency. In particular: 1. The regional abundance is less than 1.0 birds/route (low abundance), 2. The sample is based on less than 14 routes for the long term (small sample size), or 3. The results are so imprecise that a 3%/year change (as indicated by the half-width of the credible intervals) would not be detected over the long-term (quite imprecise)
+" " (blank Indicator): This category reflects data with at least 14 samples in the long term, of moderate precision, and of moderate abundance on routes
+
+Sample Size:
+"R" The sample is based on less than 5 routes for the long term, (very small samples) 
+"Y" The sample is based on less than 14 routes for the long term
+" " (no code) The sample is based on at least 14 routes for the long term
+
+Precision:
+To facilitate review of species credibility, we include sub indicator for the precision component of the Credibility Measure:
+"R" The results are so imprecise that a 5%/year change (as indicated by the half-width of the credible intervals) would not be detected over the long-term (very imprecise)
+"Y" The results are so imprecise that a 3%/year change (as indicated by the half-width of the credible intervals) would not be detected over the long-term (quite imprecise)
+" " (no code) The results are of sufficient precision that a 3%/year change (as indicated by the half-width of the credible intervals) would be detected over the long-term
+
+Abundance:
+"R" The regional abundance is less than 0.1 birds/route (very low abundance)
+"Y" The regional abundance is less than 1.0 birds/route (low abundance)
+" " The regional abundance is at least 1.0 birds/route
+
+Region:
+Region Codes consist of 3-character summary codes for State ID and state/province names, 3-character ID codes for Bird Conservation Regions (BCRs), and additional 3 character codes and names of larger regions such as countries and administrative regions for the Breeding Bird Survey. In the result spreadsheets for trends, the full names of the BCRs, state/provinces, and other regions are listed as well as a region code.
+
+ALA,Alabama; AK,Alaska; ARI,Arizona; ARK,Arkansas; BC,British Columbia; CAL,California; COL,Colorado; CON,Connecticut; DEL,Delaware; FLA,Florida; GA,Georgia; IDA,Idaho; ILL,Illinois; IND,Indiana; IA,Iowa; KAN,Kansas; KY,Kentucky; LA,Louisiana; ME,Maine; MAN,Manitoba; MD,Maryland; MAS,Massachusetts; MIC,Michigan; MIN,Minnesota; MIS,Mississippi; MO,Missouri; MON,Montana; NEB,Nebraska; NEV,Nevada; NB,New Brunswick; NH,New Hampshire; NJ,New Jersey; NM,New Mexico; NY,New York; NC,North Carolina; ND,North Dakota; NS,Nova Scotia; OHI,Ohio; OKL,Oklahoma; ONT,Ontario; ORE,Oregon; PA,Pennsylvania; PEI,Prince Edward Island; QUE,Quebec; RI,Rhode Island; SAS,Saskatchewan; SC,South Carolina; SD,South Dakota; TEN,Tennessee; TEX,Texas; UT,Utah; VT,Vermont; VA,Virginia; WAS,Washington; WV,West Virginia; WIS,Wisconsin; WYO,Wyoming
+
+S04,Northwestern Interior Forest; S05,Northern Pacific Rainforest; S06,Boreal Taiga Plains; S07,Taiga Shield and Hudson Plains; S08,Boreal Softwood Shield; S09,Great Basin; S10,Northern Rockies; S11,Prairie Potholes; S12,Boreal Hardwood Transition; S13,Lower Great Lakes/ St. Lawrence Plain; S14,Atlantic Northern Forest; S15,Sierra Nevada; S16,Southern Rockies/colorado Plateau; S17,Badlands and Prairies; S18,Shortgrass Prairie; S19,Central Mixed Grass Prairie; S20,Edwards Plateau; S21,Oaks and Prairies; S22,Eastern Tallgrass Prairie; S23,Prairie Hardwood Transition; S24,Central Hardwoods; S25,West Gulf Coastal Plain/Ouachitas; S26,Mississippi Alluvial Valley; S27,Southeastern Coastal Plain; S28,Appalachian Mountains; S29,Piedmont; S30,New England/mid-atlantic Coast; S31,Peninsular Florida; S32,Coastal California; S33,Sonoran and Mojave Deserts; S34,Sierra Madre Occidental; S35,Chihuahuan Desert; S36,Tamaulipan Brushlands; S37,Gulf Coastal Prairie; EAS,Eastern BBS Region ; CEN, Central BBS Region; WES,Western BBS Region; US,United States; CAN,Canada; SUR,Survey-wide; US1,United States (core only); CA1,Canada (core only); SU1,Survey-wide (core only)
+
+S13,Lower Great Lakes/ St. Lawrence Plain
+S14,Atlantic Northern Forest
+S27,Southeastern Coastal Plain
+S28,Appalachian Mountains
+S29,Piedmont
+S30,New England/mid-atlantic Coast
+S31,Peninsular Florida
+
+4200 Common Nighthawk
+4160 Chuck-will's-widow                      
+4171 Eastern Whip-poor-will
+
+```{r, echo=T}
+nightjars <- c(4200, 4160, 4171)
+regions <- paste("S", c(13,14,27:31), sep="")
+bbs.trends <- bbs.trends[bbs.trends$AOU %in% nightjars & bbs.trends$Region %in% regions,]
+bbs.trends$Species.Name <- trimws(bbs.trends$Species.Name)
+
+bbs.index <- bbs.index[bbs.index$AOU %in% nightjars & bbs.index$Region %in% regions,]
+bbs.index$AOU <- factor(bbs.index$AOU)
+# bbs.index$Year <- factor(bbs.index$Year)
+bbs.index <- merge(bbs.index, unique(bbs.trends[,c("AOU","Species.Name")]),
+                   by="AOU", all.x=T)
+bbs.index$Species.Name <- trimws(bbs.index$Species.Name)
+
+#plot overall trends
+ggplot(bbs.trends, aes(x=Region, col=Species.Name, group=AOU)) + 
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey75") +
+  geom_errorbar(aes(ymin=X2.5.CI, ymax=X97.5.CI), position=position_dodge(width=0.75), linewidth=0.5) +
+  geom_point(aes(y=Trend), position=position_dodge(width=0.75)) + 
+  scale_color_manual(values=c("black","grey50","grey80")) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+# ggsave(filename = "../Figures/BBS/BBS_trend_1993-2019.tiff", height=6, width=10, units="in", compression="lzw", dpi=400)
+
+#plot index per year
+ggplot(bbs.index, aes(x=Year, y=Index, col=Species.Name), lty=Species.Name) +
+  # geom_line(aes(y=X2.5.CI)) +
+  # geom_line(aes(y=X97.5.CI.num)) +
+  geom_ribbon(aes(ymin=X2.5.CI, ymax=X97.5.CI.num, fill=Species.Name), alpha=0.25, col=NA) + 
+  geom_line() +
+  scale_color_manual(values=c("black","grey50","grey80")) +
+  scale_fill_manual(values=c("black","grey50","grey80")) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank(), legend.position="top") + facet_wrap(~Region, scales="free_y")
+# ggsave(filename = "../Figures/BBS/BBS_index_per_year_1993-2019.tiff", height=6, width=12, units="in", compression="lzw", dpi=400)
+
+
 ```

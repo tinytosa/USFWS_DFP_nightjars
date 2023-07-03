@@ -1,0 +1,65 @@
+route,stop,N,W,Notes,Route.Latitude,Route.Longitude,MTNotes
+Catskill,,,,,,,
+Connetquot River St Park Preserve,1,40.75385,73.1517,,40.75385,-73.1517,
+Connetquot River St Park Preserve,2,40.76088,73.15458,,40.76088,-73.15458,
+Connetquot River St Park Preserve,3,40.76549,73.15966,,40.76549,-73.15966,
+Connetquot River St Park Preserve,4,40.77115,73.1592,,40.77115,-73.1592,
+Connetquot River St Park Preserve,5,40.77782,73.15801,,40.77782,-73.15801,
+Connetquot River St Park Preserve,6,40.78354,73.15555,,40.78354,-73.15555,
+Connetquot River St Park Preserve,7,40.7778,73.14902,,40.7778,-73.14902,
+Connetquot River St Park Preserve,8,40.77242,73.14301,,40.77242,-73.14301,
+Connetquot River St Park Preserve,9,40.76607,73.13705,,40.76607,-73.13705,
+Connetquot River St Park Preserve,10,40.75975,73.13336,,40.75975,-73.13336,
+Essex 1240,1,44.19858,73.43286,Intersection Lake Shore Road/Sherman Road.,44.19858,-73.43286,
+Essex 1240,2,,,Pull off (.9 miles) From Lake Shore Rd/Sherman Rd.,44.19858,-73.43286,copied from stop1
+Essex 1240,3,,,Intersection (1.9 miles) Halds Road/Lakeshore Rd.,44.218198,-73.409182,from GoogleMaps
+Essex 1240,4,,,(3.0 miles) from Lakeshore Rd. /Sherman Rd. ,44.218198,-73.409182,copied from stop3
+Essex 1240,5,,,Clark Rd./ Lake Shore Rd. intersection.,44.239768,-73.381798,from GoogleMaps
+Essex 1240,6,,,(5.2 miles) Small lane after residence.,44.239768,-73.381798,copied from stop5
+Essex 1240,7,,,(6.4 miles) Cemetery entrance.,44.239768,-73.381798,copied from stop5
+Essex 1240,8,,,Farm field access (7.3 miles).,44.239768,-73.381798,copied from stop5
+Essex 1240,9,,,Middle Rd/Rte. 55 intersection.,44.307226,-73.380885,from GoogleMaps. Intersection of Middle Rs and Rte. 22?
+Essex 1240,10,,,Farm field access (9.7 miles). ,44.307226,-73.380885,copied from stop9
+Fort Drum,1,458592,4881910,,44.0892,-75.51725,
+Fort Drum,2,459988,4882497,,44.09456,-75.49986,
+Fort Drum,3,460632,4883929,,44.10749,-75.49192,
+Fort Drum,4,461425,4885277,,44.11967,-75.48211,
+Fort Drum,5,462590,4886226,,44.12827,-75.46762,
+Fort Drum,6,463887,4886986,,44.13518,-75.45146,
+Fort Drum,7,464526,4888231,,44.14642,-75.44355,
+Fort Drum,8,464965,4889662,,44.15932,-75.43816,
+Fort Drum,9,465907,4890730,,44.16898,-75.42645,
+Fort Drum,10,465087,4891752,,44.17814,-75.43677,
+Minnewaska,1,41.78693,74.16204,,41.78693,-74.16204,
+Minnewaska,2,41.77296,74.17612,,41.77296,-74.17612,
+Minnewaska,3,41.76016,74.18343,,41.76016,-74.18343,
+Minnewaska,4,41.74658,74.19613,,41.74658,-74.19613,
+Minnewaska,5,41.73508,74.20392,,41.73508,-74.20392,
+Minnewaska,6,41.73724,74.21584,,41.73724,-74.21584,
+Minnewaska,7,41.73508,74.23924,,41.73508,-74.23924,
+Minnewaska,8,41.74256,74.25459,,41.74256,-74.25459,
+Minnewaska,9,41.74477,74.2709,,41.74477,-74.2709,
+Minnewaska,10,41.7518,74.28086,,41.7518,-74.28086,
+Perch River WMA,,,,,,,
+Rocky Point,,,,,,,
+Route #22,,,,,,,
+West Point,1,,,Class IV yard entrance,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,2,,,Road to Bull Hill,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,3,,,Rd. 22 after L2 Bull North,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,4,,,Rd. 18,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,5,,,Rd. 18 Southeast of L2 crow,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,6,,,Intersection for Rd. 15 & 16,41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,7,,,"Mine Torre Rd., next Snake Pit",41.34464,-74.031923,copied from Mine Rd and Stillwell Damn
+West Point,8,,,"Mine Torre Rd., Stillwell Dan",41.34464,-74.031923,"From GoogleMaps, by Stillwell Damn"
+West Point,9,,,Mine Torre Rd. almost to Rd. 1,41.330248,-74.013335,"From GoogleMaps, intersection of Mine Rd. and RR10"
+West Point,10,,,Camp Shea Rd.,41.33,-74.013647,"From GoogleMaps, Intersection of Mine Rd and Camp Shea Rd"
+Willsboro,1,44.19854,-73.43307,Lakeshore Rd./Sherman Rd. Intersection,44.19854,73.43307,
+Willsboro,2,44.20601,-73.41956,Lakeshore Rd./Headlands Rd. Intersection (There is a pulloff just after),44.20601,73.41956,
+Willsboro,3,44.2183,-73.40922,Lakeshore Rd./Halds Rd.,44.2183,73.40922,
+Willsboro,4,44.22922,-73.39406,3.0 miles from Sherman Rd. (park on shoulder of southbound lane),44.22922,73.39406,
+Willsboro,5,44.23988,-73.38177,Lakeshore Rd./ Clark Rd.,44.23988,73.38177,
+Willsboro,6,44.24714,-73.37088,State land pull off 1.0 miles from Clark Rd. (town of essex sign right after) (on lakeshore),44.24714,73.37088,
+Willsboro,7,44.25657,-73.35974,Lake Shore Rd./Cross Rd.,44.25657,73.35974,
+Willsboro,8,44.27257,-73.35011,Lakeshore Rd./Albee Rd.,44.27257,73.35011,
+Willsboro,9,44.27107,-73.37575,Middle Rd./ Rte 55 Intersection,44.27107,73.37575,
+Willsboro,10,44.28181,-73.37777,Middle Rd./Christian Rd. Intersection,44.28181,73.37777,

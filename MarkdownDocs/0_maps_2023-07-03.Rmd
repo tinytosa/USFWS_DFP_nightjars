@@ -1,0 +1,74 @@
+---
+title: "0_maps_2023-07-03"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#load packages
+
+#for playing with data
+require(tidyr) #for separate
+require(plyr) #for ddply
+require(dplyr) #for group_by
+
+#for GIS
+require(sf)
+require(raster)
+
+#for plotting
+require(ggplot2)
+require(ggrepel)
+require(RColorBrewer)
+require(viridis)
+require(colorspace)
+```
+
+## Map of the Atlantic Flyway states
+```{r}
+AF_states <- st_read(dsn="../../GIS", layer="AF_states")
+
+base.st <- ggplot() + 
+  geom_sf(data=AF_states, fill="NA", col="black") +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+#maps of states, labeled with 2 letter abbreviations
+state.plot <- 
+  base.st +
+  geom_text_repel(data=AF_states, aes(label=ST, geometry=geometry), stat = "sf_coordinates") +
+  xlab("") + ylab("")
+state.plot
+# ggsave(state.plot, filename="../Figures/states.tiff", height=10, width=8,
+#        units="in", dpi=400, compression="lzw")
+```
+
+
+## Map of Bird Conservation Regions (BCR)
+```{r}
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #Area in m^2
+
+BCR.csv <- BCR
+st_geometry(BCR.csv) = NULL #convert back to data frame
+# write.csv(BCR.csv, file="../../GIS/BCR-state_labelselection.csv", row.names=F) #select which labels to keep
+
+bcr.labels <- read.csv("../../GIS/BCR-state_labels.csv")
+bcr.labels.sf <- merge(BCR, bcr.labels[,c("OBJECTID","ST")], all.y=T, by=c("OBJECTID","ST")) #convert labels to sf object
+
+BCR$BCR <- factor(BCR$BCR)
+
+bcr.plot <- base.st + 
+  geom_sf(data=BCR, aes(fill=BCR), col=NA) +
+  geom_sf(data=AF_states, fill="NA", col="grey90") +
+  geom_sf_text(data=bcr.labels.sf, aes(label=BCR)) +
+  # geom_text_repel(data=BCR, aes(label=BCR, geometry=geometry), stat = "sf_coordinates") +
+  scale_fill_brewer(palette="Set2") + xlab("") + ylab("") +
+  theme(legend.position=c(0.1,0.85))
+bcr.plot
+# ggsave(bcr.plot, filename="../Figures/bcr.tiff", height=10, width=8, units="in",
+#        dpi=400, compression="lzw")
+
+
+```

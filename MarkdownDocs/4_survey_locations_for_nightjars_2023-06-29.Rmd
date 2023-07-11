@@ -11,23 +11,236 @@ knitr::opts_chunk$set(echo = TRUE)
 #for GIS
 require(sf)
 require(raster)
+require(stars)
+require(terrain)
 
 #for plotting
 require(ggplot2)
 require(ggrepel)
 
+AF_states <- read_sf(dsn="../../GIS", layer="AF_states")
+
 BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
 unique(BCR.ST$ST)
+BCR.ST$ST <- factor(BCR.ST$ST)
+BCR.ST$BCR <- factor(BCR.ST$BCR)
 ```
 
 ## Load road data
-```{r, echo=T}
-road.files <- dir("../../GIS/tigerline_roads/", pattern=".shp$", full.names=F)
 
-for(f in roadfiles)
+Have to go county by county with TIGER/LINE roads
+
+Download road layers by state from state websites:
+ME - https://www.maine.gov/geolib/catalog.html#transportation
+MA - https://www.mass.gov/info-details/massgis-data-massachusetts-department-of-transportation-massdot-roads
+
+```{r, echo=T}
+# road.files <- dir("../../GIS/tigerline_roads/", pattern=".shp$", full.names=F)
+# 
+# for(f in roadfiles)
+# {
+#   print(f)
+#   r <- read_sf(dsn="../../GIS/tigerline_roads", layer=gsub(f, pattern=".shp", replacement=""))
+# }
+
+#try downloading at state scale
+# me.rd <- read_sf(dsn="../../GIS/roads/MaineDOT_Public_Roads/", layer="MaineDOT_Public_Roads")
+# ma.rd <- read_sf(dsn="../../GIS/roads/MassDOT_Roads_SHP/", layer="EOTROADS_ARC")
+#no CLASS=0,1,2
+
+
+# ggplot(data=ma.rd[ma.rd$CLASS %in% 4:6 & ma.rd$LENGTH_MI > 1,]) + geom_sf(aes(col=CLASS)) + theme_bw() + theme(panel.grid=element_blank())
+
+```
+
+## Load national land cover data
+```{r, echo=T}
+# nlcd_2019 <- raster("../../GIS/NLCD/nlcd_2019_land_cover_l48_20210604/nlcd_2019_land_cover_l48_20210604.img")
+# AF_states <- readOGR(dsn="../../GIS", layer="AF_states")
+# 
+# nlcd_2019 <- crop(nlcd_2019, spTransform(AF_states, CRSobj = projection(nlcd_2019)))
+# nlcd_2019 <- mask(nlcd_2019, spTransform(AF_states, CRSobj = projection(nlcd_2019)))
+# writeRaster(nlcd_2019, filename = "../../GIS/NLCD/AF_nlcd_2019.tif", format="GTiff", overwrite=T)
+
+nlcd_2019 <- raster("../../GIS/NLCD/AF_nlcd_2019.tif")
+
+```
+
+## Load national land cover data
+```{r, echo=T}
+# tcc <- raster("../../GIS/nlcd_tcc_CONUS_all/nlcd_tcc_CONUS_2021_v2021-4/nlcd_tcc_conus_2021_v2021-4.tif")
+# AF_states <- readOGR(dsn="../../GIS", layer="AF_states")
+# tcc_2019 <- crop(tcc, spTransform(AF_states, CRSobj = projection(tcc)))
+# tcc_2019 <- mask(tcc_2019, spTransform(AF_states, CRSobj = projection(tcc)))
+# writeRaster(tcc_2019, filename = "../../GIS/nlcd_tcc_CONUS_all/AF_tcc_2019.tif", format="GTiff", overwrite=T)
+
+tcc_2019 <- raster("../../GIS/nlcd_tcc_CONUS_all/AF_tcc_2019.tif")
+# tcc_2019.df <- as.data.frame(tcc_2019, xy=T) #too big, can't do
+# table(tcc_2019.df$)
+
+```
+
+## Randomly distribute points in each BCR
+only do this once, since it will generate new points each time
+```{r, echo=T}
+
+comp <- read.csv(file="../Data_processed/sampling_comparison_nsn_bbs.csv")
+comp <- comp[!is.na(comp$BCR),]
+
+#can you set so points have to be a certain distance away from each other???
+buffer <- 20*1609 #20 miles in m
+multiplier <- 2
+route.pts <- NULL
+
+for(r in 1:nrow(comp))
 {
-  print(f)
-  r <- read_sf(dsn="../../GIS/tigerline_roads", layer=gsub(f, pattern=".shp", replacement=""))
+  a <- comp[r,]
+  print(paste(a$ST, a$BCR))
+  if(a$nsn3k.area.routes == 0)
+  {
+    next
+  }
+  a.sf <- BCR.ST[BCR.ST$ST == a$ST & BCR.ST$BCR == a$BCR,]
+  # a.pts <- st_sample(a.sf, size=a$nsn3k.area.routes) #sample without buffer around each point
+  
+  a.laea <- st_transform(a.sf, #convert projection to run through SSI
+      crs = "+proj=laea +x_0=4600000 +y_0=4600000 +lon_0=0.13 +lat_0=0.24 +datum=WGS84 +units=m")
+  # a.pts <- st_sample(x=st_as_sfc(st_bbox(a.laea)), type="SSI", r=1000, n=100) #this works
+  a.pts <- st_sample(x=a.laea, type="SSI", r=buffer, n=a$nsn3k.area.routes*multiplier) #needs crs
+  
+  a.pts <- data.frame(st_coordinates(a.pts))
+  a.pts <- a.pts[!duplicated(a.pts),]
+  
+  a.pts.sf <- st_as_sf(data.frame(a.pts), coords=c("X","Y"), crs=crs(a.laea))
+  a.pts.latlong <- st_transform(a.pts.sf, crs=crs(a.sf))
+  a.pts.coords <- st_coordinates(a.pts.latlong)
+  
+  a.pts <- data.frame(a.pts.coords, ST=a$ST, BCR=a$BCR)
+  
+  # a.pts <- st_set_crs(a.pts, crs(a.laea))
+  # a.pts.latlong <- st_transform(a.pts, crs(a.sf))
+  # 
+  # a.pts <- st_coordinates(a.pts.latlong)
+  # a.pts <- data.frame(a.pts, ST=a$ST, BCR=a$BCR)
+  
+  a.pts$selected <- 0
+  rows <- sample(1:nrow(a.pts), size=a$nsn3k.area.routes, replace=F) #if do this within [,] something weird happens and duplicates rows
+  a.pts[rows,]$selected <- 1
+  
+  route.pts <- rbind(route.pts, a.pts)
 }
 
+route.pts$selected <- factor(route.pts$selected)
+
+nrow(route.pts[duplicated(route.pts[,c("X","Y")]),]) #check to see if any points are duplicated
+
+route.sf <- st_as_sf(route.pts, coords=c("X","Y"), crs=crs(BCR.ST))
+BCR.ST$BCR <- factor(BCR.ST$BCR)
+for(s in unique(AF_states$ST))
+{
+  ex.s <- extent(AF_states[AF_states$ST == s,])
+  ggplot() + geom_sf(data=BCR.ST, aes(fill=BCR)) + 
+        scale_fill_brewer(palette="Set2") +
+    geom_sf(data=route.sf[route.sf$ST != s,], size=1, aes(shape=selected, col=selected)) +
+    geom_sf(data=route.sf[route.sf$ST == s,], size=3, aes(shape=selected, col=selected)) +
+    scale_shape_manual(values=c(1,19)) + scale_color_manual(values=c("gray50","black")) +
+    coord_sf(xlim=c(ex.s@xmin, ex.s@xmax), ylim=c(ex.s@ymin, ex.s@ymax)) +
+    theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  ggsave(filename = paste("../Figures/random_points_3k/randompts_", s, ".tiff", sep=""),
+         height=8, width=8, units="in", dpi=400, compression="lzw")
+}
+# write.table(route.pts, file="../Data_processed/random_pts_area3k.txt", sep=",", row.names=F)
+#EPSG:4269
+```
+
+## Determining whether we can keep existing routes
+compare with current survey locations
+```{r, echo=T}
+random.routes <- read.table("../Data_processed/random_pts_area3k.txt", sep=",", header=T)
+random.routes$route_name <- paste(random.routes$BCR, random.routes$ST, 1:nrow(random.routes), sep="-")
+routes <- read.table("../Data_processed/master_survey_locations.txt", sep=",", header=T) #all nightjar survey routes
+routes$st.route.stop <- paste(routes$st.route, routes$Stop, sep="..")
+
+random.sf <- st_as_sf(random.routes, coords=c("X","Y"), crs=crs(BCR.ST))
+routes.sf <- st_as_sf(routes[!is.na(routes$Latitude),], coords=c("Longitude","Latitude"), crs=crs(BCR.ST))
+
+#calculate distance between points
+dist.routes <- st_distance(random.sf, routes.sf, by_element=F)
+units(dist.routes) <- make_units(mi) #convert units from m to mi
+#rows = random.sf, columns=routes.sf
+
+#convert from wide to long
+dist.routes <- data.frame(dist.routes)
+names(dist.routes) <- routes[!is.na(routes$Latitude),]$st.route.stop #label columns
+dist.routes <- cbind(dist.routes, random.routes[,c("route_name","selected")]) #label rows
+
+dist.long <- pivot_longer(dist.routes, values_to="dist", cols='FL_0001..1':'CT_NB86..11')
+dist.long <- separate(dist.long, col="name", into=c("st_route","stop"), remove=F, sep="[.][.]")
+
+### change this as necessary ###
+distance.threshold <- set_units(20, mi)
+
+to_combine <- dist.long[dist.long$dist < distance.threshold,]
+to_combine <- to_combine[order(to_combine$stop),]
+to_combine <- to_combine[!duplicated(to_combine[,c("route_name","st_route")]),]
+
+#add lat long coordinates to route_name and st_route_stop
+to_combine <- merge(to_combine, random.routes, by=c("route_name","selected"), all.x=T)
+to_combine <- merge(to_combine, 
+                    routes[,c("st.route.stop","Longitude","Latitude")],
+                    by.x="name", by.y="st.route.stop", all.x=T, suffixes=c(".random",".current"))
+# name = st.route.stop in routes
+# route_name = route_name in random.routes
+# st_route = st.route in routes
+# X and Y = coordinates of random.routes
+# Longitude and Latitude = coordinates of current NSN routes
+
+#how many random.routes already have existing routes that could be used
+sum.r <- ddply(to_combine, .(route_name, selected, ST, BCR),
+               summarize, num.existing=length(name)) #summarized by random.route
+sum.bcr.st <- ddply(sum.r, .(selected, ST, BCR), summarize, num.random.routes=length(route_name)) #summarize by bcr-state level, number of random routes with existing routes
+
+#need to compare with how many routes we need run
+need.r <- ddply(random.routes, .(ST, BCR, selected), summarize, num.random.need=length(route_name))
+
+summary.need.have <- merge(need.r, sum.bcr.st, by=c("ST","BCR","selected"), all.x=T)
+summary.need.have[is.na(summary.need.have)] <- 0
+summary.need.have$num.remaining <- summary.need.have$num.random.need - summary.need.have$num.random.routes
+
+# write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F)
+
+to_combine$selected <- factor(to_combine$selected)
+random.sf$selected <- factor(random.sf$selected)
+
+for(st in unique(AF_states$ST))
+{
+  print(st)
+  #create sf objects from to_combine
+  random.st.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("X","Y"), crs=crs(BCR))
+  existing.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("Longitude","Latitude"), crs=crs(BCR))
+  all.random.sf <- random.sf[random.sf$ST == st &
+                               !random.sf$route_name %in% random.st.sf$route_name,]
+  
+  #plot
+  ex <- extent(AF_states[AF_states$ST == st,])
+  ggplot() + 
+    # geom_sf(data=AF_states[AF_states$ST == st,], fill=NA, col="grey75") + 
+    geom_sf(data=BCR.ST, aes(fill=BCR), alpha=0.5) +
+    scale_fill_brewer(palette="Set2") +
+    
+    geom_sf(data=all.random.sf, aes(col=selected), pch=17, size=3) +
+    
+    geom_sf(data=random.st.sf, aes(col=selected, shape=selected), stroke=1.5) +
+    scale_shape_manual(values=c(1,19)) + scale_color_manual(values=c("grey50","black")) +
+    
+    geom_sf(data=existing.sf, col="steelblue", aes(shape=selected)) + 
+    geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=selected), 
+                  stat = "sf_coordinates") +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax)) +
+    xlab("") + ylab("") +
+    theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  #blue dots = existing points, black dots = randomly distributed locations
+  ggsave(filename=paste("../Figures/random_3k_with_existing/random_existing_",st,".tiff", sep=""),
+         height=15, width=15, units="in", dpi=400, compression="lzw")
+}
 ```

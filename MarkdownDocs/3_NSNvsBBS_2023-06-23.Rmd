@@ -21,7 +21,7 @@ require(ggrepel)
 ```{r, echo=T}
 
 AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
-BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+# BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
 BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
 
 nsn.current <- read.csv("../Data_processed/summary_nsn_non-nsn_surveys_current_bcr-state.csv")
@@ -32,8 +32,8 @@ head(bbsdensity)
 ## randomly distribute points based on area of each BCR-state combo
 ```{r, echo=T}
 
-totalarea <- sum(BCR.ST$AreaBS)
-BCR.ST$prop_area <- BCR.ST$AreaBS/totalarea
+totalarea <- sum(BCR.ST$AreaSqMi) #440286.7 mi^2
+BCR.ST$prop_area <- BCR.ST$AreaSqMi/totalarea
 
 BCR.ST$nsn1k.area <- round(BCR.ST$prop_area * 1000, digits=0)
 BCR.ST$nsn2k.area <- round(BCR.ST$prop_area * 2000, digits=0)
@@ -48,13 +48,13 @@ for nsn1k, scaled meanBCR.ST so sum(meanBCR.ST) = 1, then multiplied by sample o
 BCR.ST.df <- BCR.ST
 st_geometry(BCR.ST.df) = NULL #convert back to data frame
 
-comp <- merge(BCR.ST.df[,-3], #remove "AreaSqMi" column
-        nsn.current[,c("state","BCRNumber","numcurrentroutes","numyears","meansurveysperyear")], 
-              by.x=c("ST","BCRNumber"), by.y=c("state","BCRNumber"), all=T)
+comp <- merge(BCR.ST.df[,c("ST","BCR","BCRNAME","PROVINCE_S","AreaSqMi","prop_area","nsn1k.area","nsn2k.area","nsn3k.area")],
+        nsn.current[,c("state","BCR","numcurrentroutes","numyears","meansurveysperyear")], 
+              by.x=c("ST","BCR"), by.y=c("state","BCR"), all=T)
 
 names(bbsdensity) <- gsub(names(bbsdensity), pattern="k$", replacement="k.bbsdens")
 comp <- merge(comp, bbsdensity,
-              by.x=c("ST","BCRNumber"), by.y=c("StateAbb","BCR"), all=T)
+              by.x=c("ST","BCR"), by.y=c("StateAbb","BCR"), all=T)
 
 # comp <- merge(nsn.current, bbsdensity,
 #               by.x=c("state","BCRNumber"), by.y=c("StateAbb","BCR"), all=T)
@@ -67,9 +67,21 @@ comp <- merge(comp, bbsdensity,
 #     BCR[BCR$BCRNumber %in% b,]$BCRName
 # }
 
-comp[is.na(comp$BCRName),]$BCRName <- ""
+comp[is.na(comp$BCRNAME),]$BCRNAME <- ""
 comp[is.na(comp)] <- 0
-comp[comp$BCRNumber == 0,]$BCRNumber <- NA
+comp[comp$BCR == 0,]$BCR <- NA
+
+#convert number of surveys to number of routes
+#just do with nsn.2k.area
+comp$nsn2k.area.routes <- NA
+comp[!is.na(comp$BCR),]$nsn2k.area.routes <- round(comp[!is.na(comp$BCR),]$nsn2k.area/10, digits=0)
+
+comp$nsn2k.bbsdens.routes <- NA
+comp[!is.na(comp$BCR),]$nsn2k.bbsdens.routes <- round(comp[!is.na(comp$BCR),]$nsn2k.bbsdens/10, digits=0)
+
+comp$nsn3k.area.routes <- NA
+comp[!is.na(comp$BCR),]$nsn3k.area.routes <- round(comp[!is.na(comp$BCR),]$nsn3k.area/10, digits=0)
+
 # write.csv(comp, file="../Data_processed/sampling_comparison_nsn_bbs.csv", row.names=F)
 ```
 
@@ -79,23 +91,38 @@ maps with current / weighted by bbs surveys / weighted by area of bcr-state
 
 #plot
 comp$plot_label <- paste(round(comp$meansurveysperyear, digits=0), comp$nsn2k.bbsdens, comp$nsn2k.area, sep="/")
-comp.sf <- merge(BCR.ST[,c("BCR_ST","geometry")], comp, by="BCR_ST", all=T)
+
+comp$plot_label.routes <- paste(round(comp$numcurrentroutes, digits=0),
+                                #pick one of these for 2k or 3k
+                                # comp$nsn2k.bbsdens.routes, comp$nsn2k.area.routes, sep="/") 
+                                comp$nsn3k.area.routes, sep="/")
+
+comp.sf <- merge(BCR.ST[,c("BCR","ST","geometry")], comp, by=c("BCR","ST"), all=T)
 
 comp.sf$ST <- factor(comp.sf$ST)
-comp.sf$BCRNumber <- factor(comp.sf$BCRNumber)
+comp.sf$BCR <- factor(comp.sf$BCR)
 
 
 comp.plot <- ggplot(data=comp.sf) +
-  geom_sf(aes(fill=BCRNumber), alpha=0.3) +
+  geom_sf(aes(fill=BCR), alpha=0.3) +
   scale_fill_brewer(palette="Set2") +
-  geom_text_repel(aes(label=plot_label, geometry=geometry, col=BCRNumber), 
-                  stat = "sf_coordinates") +
   scale_color_brewer(palette="Set2") +
   theme_bw(base_size=20) + xlab("") + ylab("") +
   theme(panel.grid=element_blank(), legend.position=c(0.85, 0.15))
-comp.plot
-# ggsave(comp.plot, filename="../Figures/samples_per_bcr-state.tiff",
-#        height=15, width=15, units="in", dpi=400, compression="lzw")
+
+comp.plot + 
+  geom_text_repel(aes(label=plot_label, geometry=geometry, col=BCR), 
+                  stat = "sf_coordinates")
+ggsave(filename="../Figures/routes_per_bcr-state.tiff",
+       height=15, width=15, units="in", dpi=400, compression="lzw")
+
+comp.plot + 
+  geom_sf_text(aes(label=plot_label.routes), col="black")
+  # geom_text_repel(aes(label=plot_label.routes, geometry=geometry), col="black", 
+  #                 stat = "sf_coordinates")
+# ggsave(filename="../Figures/samples_per_bcr-state_2k.tiff", #pick one of these
+ggsave(filename="../Figures/samples_per_bcr-state_3k.tiff",
+       height=15, width=15, units="in", dpi=400, compression="lzw")
 
 bbs.dens.plot <- ggplot(data=comp.sf) +
   geom_sf(aes(fill=meanBCR.ST), alpha=0.3) +
@@ -108,6 +135,5 @@ bbs.dens.plot <- ggplot(data=comp.sf) +
 bbs.dens.plot
 # ggsave(bbs.dens.plot, filename="../Figures/BBS/bbs_nightjar_density_bcr-state.tiff",
 #        height=15, width=15, units="in", dpi=400, compression="lzw")
-
 
 ```

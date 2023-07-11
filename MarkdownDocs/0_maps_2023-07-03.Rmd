@@ -48,7 +48,7 @@ state.plot
 
 ## Map of Bird Conservation Regions (BCR)
 ```{r}
-BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #Area in m^2
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #Area in m^2 and mi^2
 
 BCR.csv <- BCR
 st_geometry(BCR.csv) = NULL #convert back to data frame
@@ -69,6 +69,5 @@ bcr.plot <- base.st +
 bcr.plot
 # ggsave(bcr.plot, filename="../Figures/bcr.tiff", height=10, width=8, units="in",
 #        dpi=400, compression="lzw")
-
 
 ```

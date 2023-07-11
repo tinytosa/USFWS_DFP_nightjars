@@ -1,0 +1,89 @@
+---
+title: "2a_BBS_timeofdetection"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#load packages
+
+#for GIS
+require(sf)
+require(raster)
+
+#for plotting
+require(ggplot2)
+```
+
+## load GIS layers and BBS data
+```{r}
+AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
+# BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip") #this layer is outdated
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #correct one downloaded 7/1/2023
+#these are in NAD 83, longlat
+
+sp.list <- read.csv("../Data_raw/BBS_2022/sp_list_nightjars_bbs.csv") #only Caprimulgidae
+#4210 4200 4201 4205 4206 4190 4180 4160 4171 4172 #AOUs of nightjars
+#4200, 4160, 4171 #3 common species in the Atlantic Flyway
+
+st.key <- read.csv("../Data_raw/BBS_state_key.csv")
+
+rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
+  rt <- rt[rt$BCR %in% BCR$BCR,]
+  table(rt[,c("Active","BCR")]) #number of routes in each BCR
+  table(rt$StateNum) #number of routes in each state
+  
+  rt$Active <- factor(rt$Active)
+  rt$StateNum <- factor(rt$StateNum)
+  rt$BCR <- factor(rt$BCR)
+  
+  rt$ct.st.rt <- paste(rt$CountryNum, rt$StateNum, rt$Route, sep="-")
+
+rt.sf <- st_as_sf(rt, coords=c("Longitude","Latitude"), crs=projection(AF_states))
+
+bbs.obs <- read.table(file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
+                      sep=",", header=T) #all data from BCRs in AF
+  bbs.obs <- bbs.obs[bbs.obs$CountryNum == 840 & bbs.obs$StateNum %in% rt$StateNum,]
+  
+bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
+                       crs=projection(AF_states))
+
+bbs.weather <- read.csv(file="../Data_raw/BBS_2022/weather.csv")
+  bbs.weather <- bbs.weather[bbs.weather$CountryNum == 840 & 
+                               bbs.weather$StateNum %in% rt$StateNum,]
+  #link to bbs.obs by RouteDataID
+```
+#examine time data to species detections
+
+```{r}
+
+#sum all stop values
+bbs.obs$StopTotal <- rowSums(bbs.obs[,grep(names(bbs.obs), pattern="Stop")])
+
+bbs <- merge(bbs.weather, bbs.obs,
+             by=c("RouteDataID","CountryNum","StateNum","Route","Year","RPID"), all.x=T)
+bbs$ct.st.rt <- paste(bbs$CountryNum, bbs$StateNum, bbs$Route, sep="-")
+
+#add location information to NA lat long
+bbs <- merge(bbs, rt, by=c("ct.st.rt","CountryNum","StateNum","Route"), all.x=T) #"RouteName","Active","Stratum","BCR","RouteTypeID","RouteTypeDetailID"
+
+bbs[is.na(bbs$StopTotal),]$StopTotal <- 0
+
+bbs$detected <- 0
+bbs[bbs$StopTotal > 0,]$detected <- 1
+bbs$detected <- factor(bbs$detected)
+```
+
+```{r}
+ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4200,]) + 
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+
+ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4160,]) + 
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+
+ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4171,]) + 
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+
+```

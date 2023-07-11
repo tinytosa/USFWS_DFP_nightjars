@@ -9,6 +9,8 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 
 #load packages
+require(plyr)
+
 require(sf)
 require(raster)
 
@@ -20,11 +22,23 @@ require(ggplot2)
 ```{r echo=F}
 ```
 
+##load GIS layers
+```{r, echo=T}
+#these are in NAD 83, longlat
+AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
+# BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip") #this one is outdated
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #correct one downloaded 7/1/2023
+```
+
 ##load data
 ```{r echo=T}
 master.nsn <- read.table(file="../Data_processed/master_nsn_2023-06-21.txt", sep=",", header=T)
 master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
+```
 
+##create file of all survey locations
+```{r echo=T}
+#route locations for NSN surveys since no stop information in master.nsn file
 rt <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
 #duplicate routeid when there are stops 1-11
 #Latitude and Longitude are flipped
@@ -33,14 +47,37 @@ rt <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Rou
   rt$Routeid.char <- sprintf("%06i", rt$Routeid)
   rt$st_code <- substr(rt$Routeid.char, 0, 2)
   rt$rt_code <- substr(rt$Routeid.char, 3, 6)
+  
+  #add state letters
+  state.codes <- read.csv("../Data_raw/NSN_routeid_codes.csv", colClasses = "character")
+  rt <- merge(rt, state.codes, by.x="st_code", by.y="routeid_code", all.x=T)
+  rt <- rt[rt$state %in% AF_states$ST,]
+  rt$st.route <- paste(rt$state, rt$rt_code, sep="_")
+  # table(rt$st.route)
+  
+  rt <- rt[,c("Routeid.char","Stop","state","Latitude","Longitude","st.route")]
+  names(rt) <- c("Routeid.char","Stop","state","Longitude","Latitude","st.route")
 
-```
+rt2 <- unique(master.nonnsn[,c("Route.Stop","state","name","Route.Latitude","Route.Longitude")])
+rt2$st.route <- paste(rt2$state, rt2$name, sep="_")
+rt2$id <- rt2$name
+# table(rt2[,"st.route"])
+rt2 <- rt2[,c("id","Route.Stop","state","Route.Latitude","Route.Longitude","st.route")]
+names(rt2) <- c("Routeid.char","Stop","state","Latitude","Longitude","st.route")
 
-##load GIS layers
-```{r, echo=T}
-#these are in NAD 83, longlat
-AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
-BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+rt.all <- rbind(rt, rt2)
+# write.table(rt.all, file="../Data_processed/master_survey_locations.txt", sep=",", row.names=F) #save survey locations
+
+table(rt.all$state, useNA = "always")
+#check FL routes
+table(rt.all[rt.all$state == "NY",]$st.route)
+
+nrow(rt.all[is.na(rt.all$Latitude),]) #26 rows, NY_Rocky Point, NY_
+rt.all.sf <- st_as_sf(rt.all[!is.na(rt.all$Latitude),], coords=c("Longitude","Latitude"), crs=crs(AF_states))
+
+ggplot(data=rt.all.sf) + geom_sf(data=AF_states) + geom_sf(size=1) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+
 ```
 
 ##subset data: only include data within Atlantic flyway and data with location information
@@ -64,8 +101,8 @@ nrow(af.nsn)    #28,129 rows
 nrow(af.nsn.sf) #16,203 rows
 
 #non nsn data
-nrow(master.nonnsn)                                        #3,818 rows
-nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #3,398 rows
+nrow(master.nonnsn)                                        #3,818 rows, now 4,730 rows
+nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #3,398 rows, now 4,559 rows
 
 nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
 
@@ -90,21 +127,21 @@ surveys.year.long <- surveys.year.long[order(surveys.year.long$year),]
 surveys.year.wide <- pivot_wider(surveys.year.long, 
                                  names_from="year", id_cols="state",
                                  values_from="numsurveys", values_fill = 0)
-# write.csv(surveys.year.wide,
-#           file="../Data_processed/summary_nsn_non-nsn_surveys_perYear_perState.csv")
+write.csv(surveys.year.wide,
+          file="../Data_processed/summary_nsn_non-nsn_surveys_perYear_perState.csv")
 
 routes.year.wide <- pivot_wider(surveys.year.long, 
                                  names_from="year", id_cols="state",
                                  values_from="numroutes", values_fill = 0)
-# write.csv(routes.year.wide,
-#           file="../Data_processed/summary_nsn_non-nsn_routes_perYear_perState.csv")
+write.csv(routes.year.wide,
+          file="../Data_processed/summary_nsn_non-nsn_routes_perYear_perState.csv")
 
 #current surveys (2019-2023)
 current.surveys <- ddply(all.locs[all.locs$year %in% c(2019:2023),], .(state),
                          summarize, numcurrentsurveys=length(route_id.char),
                          numcurrentroutes=length(unique(route_id.char)))
-# write.csv(current.surveys,
-#           file="../Data_processed/summary_nsn_non-nsn_surveys_current.csv")
+write.csv(current.surveys,
+          file="../Data_processed/summary_nsn_non-nsn_surveys_current.csv")
 
 ```
 ## plot observation data
@@ -117,8 +154,8 @@ p.all <- base +
   geom_sf(data=af.nsn.sf, col="steelblue") + 
   geom_sf(data=nonnsn.sf, col="navy")
 p.all
-# ggsave(p.all, filename="../Figures/NSN/all_surveys.tiff", height=10, width=8,
-#        units="in", dpi=400, compression="lzw")
+ggsave(p.all, filename="../Figures/NSN/all_surveys.tiff", height=10, width=8,
+       units="in", dpi=400, compression="lzw")
 
 base2 <- base + 
   geom_sf(data=all.locs.sf, pch=1, col="black", size=0.5, stroke=0.1)
@@ -131,9 +168,9 @@ for(sp in unique(af.nsn$code)[1:5])
                   aes(col=code), size=2) + 
           geom_sf(data=nonnsn.sf[nonnsn.sf$species %in% sp,],
                   aes(col=species), size=2)
-  # ggsave(sp.map,
-  #        filename=paste("../Figures/NSN/all_surveys_", sp, ".tiff", sep=""),
-  #        height=10, width=8, units="in", dpi=400, compression="lzw")
+  ggsave(sp.map,
+         filename=paste("../Figures/NSN/all_surveys_", sp, ".tiff", sep=""),
+         height=10, width=8, units="in", dpi=400, compression="lzw")
 }
 
 # sp <- c("ANNI","CONI","CWWI","EWPW","NONE")
@@ -150,8 +187,8 @@ sp.map <- base2 +
 # ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp.tiff", height=8, width=20,
 #        units="in", dpi=400, compression="lzw") #for maps with ANNI
 # 
-# ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp2.tiff", height=8, width=20,
-#        units="in", dpi=400, compression="lzw") #no ANNI maps
+ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp2.tiff", height=8, width=20,
+       units="in", dpi=400, compression="lzw") #no ANNI maps
 
 for(y in 2008:2022)
 {
@@ -164,8 +201,8 @@ for(y in 2008:2022)
                   aes(col=species), size=1) +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 
-# ggsave(sp.map, filename=paste("../Figures/NSN/surveys_by_year/all_surveys_sp_", y, ".tiff", sep=""),
-#        height=8, width=20, units="in", dpi=400, compression="lzw")
+ggsave(sp.map, filename=paste("../Figures/NSN/surveys_by_year/all_surveys_sp_", y, ".tiff", sep=""),
+       height=8, width=20, units="in", dpi=400, compression="lzw")
 }
 
 ```
@@ -182,11 +219,12 @@ rt.sf <- st_as_sf(rt, coords=c("Latitude","Longitude"), crs=projection(AF_states
 #                          unique(all.locs[all.locs$year %in% y,]$route_id.char),]
 
 sp.map <- base + 
-    geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
-          pch=1, col="black", size=0.5, stroke=0.1) +
-    geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
-                         unique(all.locs[all.locs$year %in% y,]$route_id.char),],
-            pch=1, col="black", size=0.5, stroke=0.1) +
+    # geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
+    #       pch=1, col="black", size=0.5, stroke=0.1) +
+    # geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
+    #                      unique(all.locs[all.locs$year %in% y,]$route_id.char),],
+    #         pch=1, col="black", size=0.5, stroke=0.1) +
+    geom_sf(data=rt.all.sf, pch=1, col="black", size=0.5, stroke=0.1) +
     geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
                   aes(col=species), size=1) + 
     geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
@@ -194,9 +232,9 @@ sp.map <- base +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 sp.map
 
-# ggsave(sp.map, filename=paste("../Figures/NSN/2019-2023_surveys_sp.tiff",
-#                               sep=""),
-#        height=8, width=20, units="in", dpi=400, compression="lzw")
+ggsave(sp.map, filename=paste("../Figures/NSN/2019-2023_surveys_sp.tiff",
+                              sep=""),
+       height=8, width=20, units="in", dpi=400, compression="lzw")
 ```
 
 ## plot each state separately
@@ -206,10 +244,11 @@ nonnsn.sf$year <- factor(nonnsn.sf$year) #convert to factor, so not continuous c
 
 for(s in AF_states$ST)
 {
-  if(s %in% c("DC","DE","ME","MA","NJ","RI","VT"))
+  if(s %in% c("DC","DE","MA","NJ","RI","VT"))
   {
     next
   }
+  print(s)
   #state outline
   ex <- extent(AF_states[AF_states$ST == s,])
   base.st <-  ggplot() + 
@@ -219,6 +258,8 @@ for(s in AF_states$ST)
   
   #maps of all survey locations
   p.all <- base.st +
+    geom_sf(data=rt.all.sf, 
+            pch=1, col="grey50", size=0.5, stroke=0.1) +
     geom_sf(data=af.nsn.sf[af.nsn.sf$state == s,], aes(col=start_year),
             pch=1, size=0.5, stroke=1, fill=NA) + 
     geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
@@ -229,8 +270,8 @@ for(s in AF_states$ST)
     theme(legend.position="top") +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
   # print(p.all)
-  # ggsave(p.all, filename=paste("../Figures/NSN/surveys_by_state/", s, "_all_surveys.tiff", sep=""),
-  #      height=10, width=8, units="in", dpi=400, compression="lzw")
+  ggsave(p.all, filename=paste("../Figures/NSN/surveys_by_state/", s, "_all_surveys.tiff", sep=""),
+       height=10, width=8, units="in", dpi=400, compression="lzw")
   
   #maps of current survey locations and detections of species
   p.sp <- base.st +
@@ -246,14 +287,16 @@ for(s in AF_states$ST)
     facet_wrap(~species, nrow=1) +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
   
-  # ggsave(p.sp,
-  #        filename=paste("../Figures/NSN/surveys_by_state/",s,"_2019-2023_surveys_sp.tiff", sep=""),
-  #      height=8, width=20, units="in", dpi=400, compression="lzw")
+  ggsave(p.sp,
+      filename=paste("../Figures/NSN/surveys_by_state/",s,"_2019-2023_surveys_sp.tiff", sep=""),
+       height=8, width=20, units="in", dpi=400, compression="lzw")
 }
 
 ```
 
 ## summarize data based on state and BCR information
+
+### start here and check
 ```{r, echo=T}
 #assign each point to BCR value
 # unique.locs <- unique(all.locs[,c("route_id.char","state")])
@@ -262,6 +305,7 @@ unique.locs <- all.locs[!duplicated(all.locs$route_id.char),
 unique.locs.sf <- st_as_sf(unique.locs[!is.na(unique.locs$Longitude),], 
                            coords=c("Longitude","Latitude"),
                            crs=projection(AF_states))
+#assign BCRs and states to survey points
 loc.bcr <- sapply(st_intersects(unique.locs.sf, BCR),
                   function(z) if (length(z)==0) NA_integer_ else z)
 BCR.st <- BCR
@@ -272,69 +316,63 @@ BCR.st$bcr.id <- row.names(BCR.st)
 loc.bcr <- data.frame(loc.bcr)
 loc.bcr <- cbind(unique.locs.sf, loc.bcr)
 loc.bcr <- merge(loc.bcr, BCR.st, by.x="loc.bcr", by.y="bcr.id", all.x=T)
-loc.bcr$BCRNumber <- factor(loc.bcr$BCRNumber)
+loc.bcr$BCR <- factor(loc.bcr$BCR)
 
 loc.bcr.na <- loc.bcr[is.na(loc.bcr$loc.bcr),]
 
-loc.bcr.na[loc.bcr.na$state == "VA",]
+loc.bcr.na[loc.bcr.na$state %in% "VT",]
 
 ###########
 #fix loc.bcr that don't have a BCR value
-loc.bcr[loc.bcr$state %in% "VT" & loc.bcr$route_id.char %in% "Berkshire",][,c("BCRName","BCRNumber")] <- c("Atlantic Northern Forest",14)
-loc.bcr[loc.bcr$state %in% "NY" & loc.bcr$route_id.char %in% "Fishers Island",][,c("BCRName","BCRNumber")] <- c("New England/Mid-Atlantic Coast",30)
-loc.bcr[loc.bcr$state %in% "NY" & loc.bcr$route_id.char %in% "Wellesley Island",][,c("BCRName","BCRNumber")] <- c("Lower Great Lakes/St.Lawrence Plain",13)
+loc.bcr[loc.bcr$state %in% "MD" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("New England/Mid-Atlantic Coast")
+loc.bcr[loc.bcr$state %in% "MD" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
-loc.bcr[loc.bcr$state %in% "MD" & is.na(loc.bcr$loc.bcr),]$BCRName <- "New England/Mid-Atlantic Coast"
-loc.bcr[loc.bcr$state %in% "MD" & is.na(loc.bcr$loc.bcr),]$BCRNumber <- 30
+loc.bcr[loc.bcr$route_id.char %in% c("250009","250052","259336","250921","259242"),]$BCRNAME <- toupper("Southeastern Coastal Plain") #FL routes
+loc.bcr[loc.bcr$route_id.char %in% c("250009","250052","259336","250921","259242"),]$BCR <- 27
 
-loc.bcr[loc.bcr$route_id.char %in% c("250052","250003","250062","259336","250921", #FL routes
-                                      "270056") #GA routes
-        ,]$BCRName <- "Southeastern Coastal Plain"
-loc.bcr[loc.bcr$route_id.char %in% c("250052","250003","250062","259336","250921","270056"),]$BCRNumber <- 27
+loc.bcr[loc.bcr$state %in% "FL" & is.na(loc.bcr$BCRNAME),]$BCRNAME <- toupper("Peninsular Florida")
+loc.bcr[loc.bcr$state %in% "FL" & is.na(loc.bcr$BCR),]$BCR <- 31
 
-loc.bcr[loc.bcr$state %in% "FL" & is.na(loc.bcr$BCRName),]$BCRName <- "Peninsular Florida"
-loc.bcr[loc.bcr$state %in% "FL" & is.na(loc.bcr$BCRNumber),]$BCRNumber <- 31
+loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("New England/Mid-Atlantic Coast")
+loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
-loc.bcr[loc.bcr$route_id.char %in% c("630906"),]$BCRName <- "Appalachian Mountains" #SC route
-loc.bcr[loc.bcr$route_id.char %in% c("630906"),]$BCRNumber <- 28
-
-loc.bcr[loc.bcr$state %in% "NC" & is.na(loc.bcr$BCRName),]$BCRName <- "Southeastern Coastal Plain" #rest of NC routes
-loc.bcr[loc.bcr$state %in% "NC" & is.na(loc.bcr$BCRNumber),]$BCRNumber <- 27
-
-loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCRName <- "New England/Mid-Atlantic Coast"
-loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCRNumber <- 30
+loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("Atlantic Northern Forest")
+loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCR <- 14
 
 ############
-BCR$BCRNumber <- factor(BCR$BCRNumber)
+BCR$BCR <- factor(BCR$BCR)
 #check bcrs by plotting by color, does it match the bcr_labeled.tiff? Yes.
 #need to correct BCRs of some points
-ggplot() + 
+nsn.plot <- ggplot() + 
   # geom_sf(data=BCR, aes(fill=BCRNumber), col="grey90") +
   # scale_fill_brewer(palette="Set2") +
   geom_sf(data=AF_states, col="grey75", fill=NA) +
-  # geom_sf(data=loc.bcr.na, aes(col=BCRNumber)) +
-  geom_sf(data=loc.bcr, aes(col=BCRNumber)) +
+  # geom_sf(data=loc.bcr.na, aes(col=BCR)) +
+  geom_sf(data=loc.bcr, aes(col=BCR)) +
   scale_color_brewer(palette="Set2", na.value="black") +
   theme_bw(base_size=20) + 
   theme(panel.grid=element_blank(), legend.position=c(0.8, 0.25))
-# ggsave(filename = "../Figures/NSN/all_surveys_by_BCR-state.tiff",
-#        height=8, width=8, units="in", dpi=400, compression="lzw")
+ggsave(nsn.plot, filename = "../Figures/NSN/all_surveys_by_BCR-state.tiff",
+       height=8, width=8, units="in", dpi=400, compression="lzw")
+
+ex <- extent(AF_states[AF_states$ST == "NY",])
+nsn.plot + coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
 
 st_geometry(loc.bcr) = NULL #convert back to data frame
 
 ###########
 #current surveys (2019-2023)
-all.locs <- merge(all.locs, loc.bcr, by=c("route_id.char","state"), all.x=T) #32,859 obs.
+all.locs <- merge(all.locs, loc.bcr, by=c("route_id.char","state"), all.x=T) #32,859 obs., 39512 with Maine
 
 #summarize by BCR-State
 current.surveys <- ddply(all.locs[all.locs$year %in% c(2019:2023),],
-                         .(state, BCRNumber, BCRName),
+                         .(state, BCR, BCRNAME),
                          summarize, numcurrentsurveys=length(route_id.char),
                          numcurrentroutes=length(unique(route_id.char)),
                          numyears=length(unique(year)))
 current.surveys$meansurveysperyear <- round(current.surveys$numcurrentsurveys/current.surveys$numyears, digits=2)
-# write.csv(current.surveys,
-#           file="../Data_processed/summary_nsn_non-nsn_surveys_current_bcr-state.csv")
+write.csv(current.surveys,
+          file="../Data_processed/summary_nsn_non-nsn_surveys_current_bcr-state.csv")
 ```
 
 

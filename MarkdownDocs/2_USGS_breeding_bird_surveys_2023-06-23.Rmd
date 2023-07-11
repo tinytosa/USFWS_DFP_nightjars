@@ -31,16 +31,17 @@ Look at states within the Atlantic Flyway and the Bird Conservation Regions (BCR
 ```{r}
 
 AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
-BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip")
+# BCR <- read_sf(dsn="../../GIS", layer="BCR_AF_clip") #this layer is outdated
+BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #correct one downloaded 7/1/2023
 #these are in NAD 83, longlat
 
 plot(AF_states)
 plot(BCR)
 
-BCR$BCRNumber
+BCR$BCR
 #14 13 30 28 29 27 31
 
-BCR$BCRNumber <- factor(BCR$BCRNumber)
+BCR$BCR <- factor(BCR$BCR)
 
 ```
 
@@ -54,7 +55,7 @@ BBS does not have data for 2020 because of COVID19
 
 ```{r, echo=T}
 rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
-  rt <- rt[rt$BCR %in% BCR$BCRNumber,]
+  rt <- rt[rt$BCR %in% BCR$BCR,]
   table(rt[,c("Active","BCR")]) #number of routes in each BCR
   table(rt$StateNum) #number of routes in each state
   
@@ -108,6 +109,9 @@ bbs.obs <- read.table(file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
 bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
                        crs=projection(AF_states))
 
+bbs.weather <- read.csv(file="../Data_raw/BBS_2022/weather.csv")
+  bbs.weather <- bbs.weather[bbs.weather$CountryNum == 840 & 
+                               bbs.weather$StateNum %in% rt$StateNum,]
 
 #pick one of these
 # bbs.trends <- read.csv(file="../Data_raw/BBS_2022/BBS_1966-2019_core_trend_best.csv")

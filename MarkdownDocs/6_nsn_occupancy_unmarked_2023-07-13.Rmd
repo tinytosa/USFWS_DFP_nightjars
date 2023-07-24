@@ -1,0 +1,187 @@
+---
+title: "6_nsn_occupancymodels_2023-07-13"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(unmarked)
+require(plyr)
+require(dplyr)
+require(tidyr)
+
+require(ggplot2)
+require(ggpubr)
+
+```
+
+## load data
+
+```{r}
+ewpw.dh <- read.csv("../Data_processed/occupancy_detectionhistory_EWPW.csv")
+length(ewpw.dh) #98
+
+#convert to binary (presence/absence)
+dh <- ewpw.dh
+
+#remove first column from dh
+###
+#site covariates
+sitedata <- data.frame(site=dh[,1])
+sitedata <- separate(sitedata, col="site", into=c("state","route_stop"), sep="-", remove=F)
+sitedata$route_stop <- gsub(substr(sitedata$site, start=nchar(sitedata$site)-1, stop=nchar(sitedata$site)), pattern="[.]", replacement="")
+sitedata <- separate(sitedata, col="site", remove=F, into=c("state.rt","stop"), sep="[.][0-9]{1,2}")
+
+dh <- dh[,-1]
+dh[dh > 0] <- 1
+
+sp.matrix <- as.matrix(dh)
+dim(sp.matrix)
+#1760 sites x 96 year.minutes
+
+###
+#survey covariates
+
+#add year
+year.df <- data.frame(matrix(data=rep(rep(as.character(2007:2022), each=6), times=nrow(dh)), ncol=ncol(dh), byrow=T)) #RxJ rows in  site order
+
+```
+
+## construct unmarked frame for single season occupancy
+
+```{r, echo=T}
+#single season occupancy frame
+umf <- unmarkedFrameOccu(y=sp.matrix[,67:96], siteCovs=sitedata, obsCovs=list(year=year.df[,67:96]))
+head(umf)
+
+# tiff(filename="../Figures/occupancy/dethist_nsn_EWPW.tiff", height=10, width=8, units="in", compression="lzw", res=400)
+plot(umf)
+# dev.off()
+
+summary(umf)
+
+```
+
+## run single season occupancy model
+
+```{r, echo=T}
+
+null <- occu(~1 ~1, data=umf)
+summary(null)
+
+#overall
+plogis(-0.688) #33.4% 
+plogis(-0.706) #33.0%
+
+#last 5 years
+plogis(-0.779) #occupancy 31.45%
+plogis(-0.542) #detection 36.77%
+
+year <- occu(~year ~1, data=umf)
+summary(year)
+
+year.state <- occu(~year ~ state + (1|`state-rt`), data=umf) #add in random effects for single season!
+summary(year.state)
+
+#reference is CT
+nd1 <- data.frame(year=as.factor(2010), state=unique(sitedata$state),`state-rt`="CT-NB103104")
+nd2 <- data.frame(year=as.factor(2020), state=unique(sitedata$state),`state-rt`="CT-NB103104")
+nd <- rbind(nd1, nd2)
+
+names(nd) <- c("year","state","state-rt")
+psi <- predict(year.state, 'state', newdata=nd) #rows=sites
+
+ggplot(psi, aes(x=nd$state, y=Predicted, col=nd$year)) + geom_point() + geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
+  xlab("state") + ylab("probability of occupancy") +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+nd <- data.frame(year=as.factor(c(2007:2022)), state="CT",`state-rt`="CT-NB103104")
+p <- predict(year.state, 'det', newdata=nd) #rows=sites
+
+ggplot(p, aes(x=nd$year, y=Predicted)) + geom_point() + geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1) + 
+  xlab("Year") + ylab("probability of detection") +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+```
+
+
+## run dynamic occupancy model
+```{r. echo=T}
+#dynamic occupancy frame
+M <- nrow(sp.matrix)
+J <- 6
+T <- 16 #2007:2022
+
+umf <- unmarkedMultFrame(y=sp.matrix, siteCovs=sitedata, obsCovs=list(year=year.df), numPrimary=16)
+plot(umf)
+```
+
+
+```{r, echo=T}
+null <- colext(~1, ~1, ~1, ~1, data=umf)
+proj <- unmarked::projected(null, mean = FALSE)
+
+state <- colext(psiformula= ~state, ~1, ~1, pformula= ~year, data=umf)
+```
+
+
+## run stacked single-season occupancy model
+```{r, echo=T}
+
+sp.1 <- sp.matrix[,1:6]
+sp.2 <- sp.matrix[,7:12]
+sp.3 <- sp.matrix[,13:18]
+sp.4 <- sp.matrix[,19:24]
+sp.5 <- sp.matrix[,25:30]
+sp.6 <- sp.matrix[,31:36]
+sp.7 <- sp.matrix[,37:42]
+sp.8 <- sp.matrix[,43:48]
+sp.9 <- sp.matrix[,49:54]
+sp.10 <- sp.matrix[,55:60]
+sp.11 <- sp.matrix[,61:66]
+sp.12 <- sp.matrix[,67:72]
+sp.13 <- sp.matrix[,73:78]
+sp.14 <- sp.matrix[,79:84]
+sp.15 <- sp.matrix[,85:90]
+sp.16 <- sp.matrix[,91:96]
+
+sp.stacked <- rbind(sp.1, sp.2, sp.3, sp.4, sp.5, sp.6, sp.7, sp.8, sp.9, sp.10, sp.11, sp.12, sp.13, sp.14, sp.15, sp.16)
+min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6)
+site.stacked <- rbind(sitedata,sitedata,sitedata,sitedata,sitedata,
+                      sitedata,sitedata,sitedata,sitedata,sitedata,
+                      sitedata,sitedata,sitedata,sitedata,sitedata,
+                      sitedata)
+site.stacked$year <- as.factor(rep(2007:2022, each=nrow(sp.matrix)))
+
+
+umf <- unmarkedFrameOccu(y=sp.stacked, siteCovs=site.stacked, obsCovs=list(min=min.df))
+head(umf)
+
+# tiff(filename="../Figures/occupancy/dethist_nsn_EWPW_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
+plot(umf)
+# dev.off()
+
+summary(umf)
+```
+
+#run stacked single season occupancy models
+```{r, echo=T}
+null <- occu(~1 ~1, data=umf)
+p.year.min <- occu(~year + scale(min) ~1 + (1|state.rt), data=umf)
+
+p.year.min.o.state.year <- occu(~year + scale(min) ~state + year + (1|state.rt), data=umf)
+```
+
+
+#plot marginals for stacked single season occupancy models
+```{r, echo=T}
+
+plotEffects(p.year.min.o.state.year, "det", covariate="year")
+plotEffects(p.year.min.o.state.year, "det", covariate="min")
+
+plotEffects(p.year.min.o.state.year, "state", covariate="state")
+plotEffects(p.year.min.o.state.year, "state", covariate="year")
+
+```

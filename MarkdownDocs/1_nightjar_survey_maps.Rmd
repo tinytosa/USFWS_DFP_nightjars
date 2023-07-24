@@ -66,7 +66,8 @@ rt2 <- rt2[,c("id","Route.Stop","state","Route.Latitude","Route.Longitude","st.r
 names(rt2) <- c("Routeid.char","Stop","state","Latitude","Longitude","st.route")
 
 rt.all <- rbind(rt, rt2)
-# write.table(rt.all, file="../Data_processed/master_survey_locations.txt", sep=",", row.names=F) #save survey locations
+rt.all <- rt.all[!duplicated(rt.all[,c("st.route","Stop")]),]
+write.table(rt.all, file="../Data_processed/master_survey_locations.txt", sep=",", row.names=F) #save survey locations
 
 table(rt.all$state, useNA = "always")
 #check FL routes
@@ -109,8 +110,10 @@ nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coor
 #combine nsn and non-nsn survey data
 nsn.locs <- af.nsn[,c("Latitude","Longitude","start_year","route_id.char","state")]
   names(nsn.locs) <- c("Longitude","Latitude","year","route_id.char","state")
-nonnsn.locs <- master.nonnsn[,c("Route.Longitude","Route.Latitude","year","name","state")]
-  names(nonnsn.locs) <- c("Longitude","Latitude","year","route_id.char","state")
+  nsn.locs$Route.Stop <- 1
+nonnsn.locs <- master.nonnsn[,c("Route.Longitude","Route.Latitude","year","id","state","Route.Stop")]
+  names(nonnsn.locs) <- c("Longitude","Latitude","year","route_id.char","state","Route.Stop")
+
 
 all.locs <- rbind(nsn.locs, nonnsn.locs)
 all.locs.sf <- st_as_sf(all.locs[!is.na(all.locs$Longitude),], 
@@ -175,6 +178,8 @@ for(sp in unique(af.nsn$code)[1:5])
 
 # sp <- c("ANNI","CONI","CWWI","EWPW","NONE")
 sp <- c("CONI","CWWI","EWPW","NONE")
+sp <- c("CONI","CWWI","EWPW")
+
 sp.map <- base2 + 
           geom_sf(data=af.nsn.sf[af.nsn.sf$species %in% sp,], 
           # geom_sf(data=af.nsn.sf[!af.nsn.sf$species %in% c("NONE","NA"),], 
@@ -187,10 +192,11 @@ sp.map <- base2 +
 # ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp.tiff", height=8, width=20,
 #        units="in", dpi=400, compression="lzw") #for maps with ANNI
 # 
-ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp2.tiff", height=8, width=20,
-       units="in", dpi=400, compression="lzw") #no ANNI maps
+# ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp2.tiff", height=8, width=20, #no ANNI maps
+ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp3.tiff", height=8, width=20, #no ANNI or NONE maps
+       units="in", dpi=400, compression="lzw") 
 
-for(y in 2008:2022)
+for(y in 2008:2023)
 {
   sp.map <- base + 
     geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
@@ -244,7 +250,7 @@ nonnsn.sf$year <- factor(nonnsn.sf$year) #convert to factor, so not continuous c
 
 for(s in AF_states$ST)
 {
-  if(s %in% c("DC","DE","MA","NJ","RI","VT"))
+  if(s %in% c("DC","NJ","RI","VT"))
   {
     next
   }
@@ -338,6 +344,16 @@ loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
 loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("Atlantic Northern Forest")
 loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCR <- 14
+
+loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("LOWER GREAT LAKES/ ST. LAWRENCE PLAIN")
+loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCR <- 13
+
+loc.bcr[is.na(loc.bcr$BCR),]
+
+####
+#save this since has st-bcr info
+loc.bcr.df <- data.frame(loc.bcr)
+write.csv(loc.bcr.df[,c("route_id.char","state","BCR","BCRNAME")], file="../Data_processed/route_bcr_state.csv", row.names=F)
 
 ############
 BCR$BCR <- factor(BCR$BCR)

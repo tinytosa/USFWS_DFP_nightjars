@@ -15,6 +15,7 @@ require(raster)
 #for plotting
 require(ggplot2)
 require(ggrepel)
+require(viridis)
 ```
 
 ## Load data
@@ -82,7 +83,7 @@ comp[!is.na(comp$BCR),]$nsn2k.bbsdens.routes <- round(comp[!is.na(comp$BCR),]$ns
 comp$nsn3k.area.routes <- NA
 comp[!is.na(comp$BCR),]$nsn3k.area.routes <- round(comp[!is.na(comp$BCR),]$nsn3k.area/10, digits=0)
 
-# write.csv(comp, file="../Data_processed/sampling_comparison_nsn_bbs.csv", row.names=F)
+write.csv(comp, file="../Data_processed/sampling_comparison_nsn_bbs.csv", row.names=F)
 ```
 
 ## Plot maps with currrent survey numbers and ideal

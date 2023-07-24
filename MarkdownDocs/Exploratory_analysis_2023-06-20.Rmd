@@ -88,8 +88,8 @@ format data so easier to work with later
 #raw files
 nsn <- read.csv(file="../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Routes.csv")
 #duplicate routeid when there are stops 1-11
-  nsn.all <- nsn
-  nsn <- nsn[nsn$Stop == 1 | nsn$Routeid == 981234,] #subset for first stop in each route, no Stop 1 for 981234
+  # nsn.all <- nsn
+  # nsn <- nsn[nsn$Stop == 1 | nsn$Routeid == 981234,] #subset for first stop in each route, no Stop 1 for 981234
 
 rt.id <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Route ID.csv")
 
@@ -111,9 +111,24 @@ nsn.time <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Ti
   nsn.time[nsn.time$route_id == 6101,]$route_id <- 60101
   nsn.time[nsn.time$route_id == 6051,]$route_id <- 60051
 
-nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Observations.csv")
+nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Observations.csv") #39,658 observations
+  #are there multiple entries per nsn.sampling?
+  unique(nsn.obs[duplicated(nsn.obs[,c("survey_stop_id","species_id")]),]$survey_stop_id) #hmmmmm...9640 duplicated observations for sampling occasions!
+  #25% of the observations 
+  
+  # nsn.sampling[nsn.sampling$id %in% 363,] #to get survey_id
+  # nsn.sampling[nsn.sampling$survey_id %in% 37,] #to get id.sampling to see if there are other observations within the route
+  # nsn.obs[nsn.obs$survey_stop_id %in% 361:370,]
+  
+  # master.nsn[master.nsn$id.sampling %in% 10941,]
+  # 
+  # nsn.sampling[nsn.sampling$survey_id %in% 1095,]
+  # 
+  # nsn.all[nsn.all$Routeid %in% 890027,]
 
 nsn.sampling <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Sampling.csv")
+  nsn.sampling <- nsn.sampling[order(nsn.sampling$id),]
+  nsn.sampling$stop_mit <- rep(1:10, times=nrow(nsn.sampling)/10)
 
 nsn.old <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Old Routes.csv")
 
@@ -199,43 +214,69 @@ rt.id = 4325 rows
 nsn = 3418 rows
 
 ```{r, echo=T}
-# master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
-#                 suffixes=c(".rt","rtid"))
-#don't do this with original rt.id data frame since unmatched routeIDs
+# # master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
+# #                 suffixes=c(".rt","rtid"))
+# #don't do this with original rt.id data frame since unmatched routeIDs
+# 
+# #this rt.id has location information already
+# master <- merge(rt.id, nsn, all=T,
+#                 by.x="route_id.char", by.y="Routeid.char",
+#                 suffixes=c("",".rt"))
+# #if has lat/long, then good, if not need to fix, add to NSN_rotueid_corrections.csv
+# 
+#   # master[is.na(master$Latitude) & master$state %in% AF_states$ST,]
+#   #data from Atlantic Flyway that doesn't have location information
+#   
+#   master[duplicated(master$corrected),]$route_id.char
+#   #"259249" "550037" "880001" #all of these have NA original & correct
+#   # master[master$route_id.char %in% c("259249"),]
+#   
+#   master[master$Stop %in% 11,]
+#   #Stop == 11 in AZ and MN?
+# 
+# master <- merge(master, nsn.time, by.x="corrected", by.y="route_id", 
+#                 all=T, suffixes=c("",".time"))
+# nrow(master) #7374 rows
+# master <- merge(master, nsn.sampling, by.x="id",
+#                 by.y="survey_id", all=T, suffixes=c("",".sampling"))
+# nrow(master) #49418 rows
+# master <- merge(master, nsn.obs, by.x="id.sampling",
+#                 by.y="survey_stop_id", all=T, suffixes=c("",".obs"))
+# nrow(master)
+# master <- merge(master, nsn.sp, all.x=T, by.x="species_id", by.y="id",
+#                 suffixes=c("",".sp"))
+# nrow(master)
+# 
+# # unique(master[is.na(master$id),]$route_id.char) #route sampling info and time/miles info, but no route info, no route id
+# #are these duplicated entries?
+# #221
+# 
+# write.table(master, file="../Data_processed/master_nsn_2023-06-21.txt", sep=",", row.names=F)
 
-#this rt.id has location information already
-master <- merge(rt.id, nsn, all=T,
-                by.x="route_id.char", by.y="Routeid.char",
-                suffixes=c("",".rt"))
-#if has lat/long, then good, if not need to fix, add to NSN_rotueid_corrections.csv
+#### need to add nsn.time and nsn.sampling together so can merge with route_id and stop_id
+#### merge in order that nsn people do it
 
-  # master[is.na(master$Latitude) & master$state %in% AF_states$ST,]
-  #data from Atlantic Flyway that doesn't have location information
-  
-  master[duplicated(master$corrected),]$route_id.char
-  #"259249" "550037" "880001" #all of these have NA original & correct
-  # master[master$route_id.char %in% c("259249"),]
+#1. add nsn.obs to nsn.sampling
+master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, suffixes=c(".obs",".sampling")) #68,359 rows
 
-master <- merge(master, nsn.time, by.x="corrected", by.y="route_id", 
-                all=T, suffixes=c("",".time"))
-nrow(master) #7374 rows
-master <- merge(master, nsn.sampling, by.x="id",
-                by.y="survey_id", all=T, suffixes=c("",".sampling"))
-nrow(master) #49418 rows
-master <- merge(master, nsn.obs, by.x="id.sampling",
-                by.y="survey_stop_id", all=T, suffixes=c("",".obs"))
-nrow(master)
-master <- merge(master, nsn.sp, all.x=T, by.x="species_id", by.y="id",
-                suffixes=c("",".sp"))
-nrow(master)
+#2. add nsn.time to master
+master <- merge(master, nsn.time, by.x="survey_id", by.y="id", all=T, suffixes=c("",".time")) #68,359 rows
 
-# unique(master[is.na(master$id),]$route_id.char) #route sampling info and time/miles info, but no route info, no route id
-#are these duplicated entries?
-#221
+#3. add nsn to master
+nrow(nsn[!(nsn$Routeid %in% master$route_id),]) #2663 rows (roughly the number of rows added with the merge aka routes without observations)
+master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all=T, suffixes=c("",".route")) #71,024 rows
+
+#4. add rt.id to master
+nrow(rt.id[!(rt.id$corrected %in% master$route_id),]) #420 rows not in master already
+master <- merge(master, rt.id, by.x="route_id", by.y="corrected", all=T, suffixes=c("",".rtid")) #71,444 rows
+
+#5 add nsn.sp to master
+master <- merge(master, nsn.sp[,c("id","common_name","scientific_name","code")], by.x="species_id", by.y="id", all.x=T)
+
 
 #do this once
-# write.table(master, file="../Data_processed/master_nsn_2023-06-21.txt",
-#             sep=",", row.names=F)
+# write.table(master, file="../Data_processed/master_nsn_2023-07-24.txt", sep=",", row.names=F)
+
 ```
 
 ## Raw data from non-Nightjar Survey Network
@@ -253,6 +294,7 @@ non.nsn.sites <- read.csv("../Data_raw/CombinedData/Allroute_info.csv")
 ct.file.list <- dir("../Data_raw/CT Whippoorwill Data",
                     pattern=".xls", full.names = T)
 ct.data.all <- data.frame()
+ct.obs.all <- data.frame()
 for(f in ct.file.list)
 {
   print(f)
@@ -262,10 +304,21 @@ for(f in ct.file.list)
                   pattern="../Data_raw/CT Whippoorwill Data/WPWL",
                   replacement=""), pattern=".xls", replacement=""))
   ct.data.all <- rbind(ct.data.all, ct.data)
+  
+  ct.obs <- read_excel(f, sheet="DataAnalysisInterval2")
+  ct.obs$file <- f
+  ct.obs$year <- as.numeric(gsub(gsub(f,
+                  pattern="../Data_raw/CT Whippoorwill Data/WPWL",
+                  replacement=""), pattern=".xls", replacement=""))
+  ct.obs.all <- rbind(ct.obs.all, ct.obs)
+
 }
-# write.table(file=
-#               "../Data_raw/CT Whippoorwill Data/master_CT_WPWL.txt", 
+# write.table(file="../Data_raw/CT Whippoorwill Data/master_CT_WPWL.txt", 
 #             ct.data.all, sep=",", row.names=F)
+
+# write.table(file="../Data_raw/CT Whippoorwill Data/master_obs_CT_WPWL.txt",
+#             ct.obs.all, sep=",", row.names=F)
+
 
 #fix incorrect 
 non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude <- -(non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude)
@@ -355,7 +408,25 @@ vt[vt$id %in% "",]$id <- vt[vt$id %in% "",]$name
 #####
 # Maine
 #####
-me.sites <- read.csv(file="../Data_raw/CombinedData/ME_NIGHTJAR Master Point Count File 2018-2022_sampling.csv")
+me.sites <- read.csv(file="../Data_raw/CombinedData/ME_NIGHTJAR Master Point Count File 2018-2022_sampling.csv") #data 2018-2022
+
+#convert from NAD83 zone19 to lat/long
+#NAD83 zone 19 EPSG:26919
+me.utm.sf <- st_as_sf(me.sites, coords=c("UTM.first","UTM.second"), crs=26919)
+me.latlong.sf <- st_transform(me.utm.sf, crs=crs(AF_states))
+me.coords <- data.frame(st_coordinates(me.latlong.sf))
+names(me.coords) <- c("Route.Longitude","Route.Latitude")
+me.sites <- cbind(me.sites, me.coords)
+
+me.sites2 <- read.csv(file="../Data_raw/CombinedData/Maine Nightjar Route Coordinates (2023) - Lat Long.csv") #contains survey locations in 2023
+# me.sites2[!me.sites2$Point.Name %in% me.sites$Point.Count..,]
+names(me.sites2) <- c("Point.Count..","Route.Latitude","Route.Longitude")
+me.sites2 <- separate(me.sites2, col="Point.Count..", into=c("ROUTE","stop"), remove=F, sep="-")
+me.sites2$YEAR <- 2023
+
+#combine 2018-2022 and 2023 data
+me.sites <- bind_rows(me.sites, me.sites2[,!names(me.sites2) %in% "stop"])
+
 #contains data for all species heard
 me.obs <- read.csv(file="../Data_raw/CombinedData/ME_NIGHTJAR Master Point Count File 2018-2022_obs.csv")
 me.nightjar.obs <- me.obs[me.obs$Species %in% c("Chuck-will's-widow","Eastern Whip-poor-will","Common Nighthawk"),]
@@ -363,10 +434,10 @@ me.nightjar.obs[me.nightjar.obs$Species %in% "Chuck-will's-widow",]$Species <- "
 me.nightjar.obs[me.nightjar.obs$Species %in% "Eastern Whip-poor-will",]$Species <- "EWPW"
 me.nightjar.obs[me.nightjar.obs$Species %in% "Common Nighthawk",]$Species <- "CONI"
 
-#check which sites have data (all sites in me.sites were run)
+#check which sites have data (all sites in me.sites were run up to 2022)
 unique(me.sites[!me.sites$Point.Count.. %in%
                   unique(me.obs$Point.Count..),]$Point.Count..)
-#all sites in me.sites have data associated with them
+#all sites in me.sites have data associated with them (up to 2022)
 
 #check do all obs have sites?
 unique(me.obs[!me.obs$Point.Count.. %in%
@@ -385,7 +456,7 @@ names(me) <- gsub(names(me), pattern="Minute", replacement="min")
 me$created_at <- paste(me$Bird.Survey.Date..MM.DD.YYYY,
                        me$Bird.Survey.start.time..in.HH.MM.24.hour.format, sep=" ")
 me <- me[,c("Point.Count..","ROUTE",
-            "created_at","UTM.first","UTM.second",
+            "created_at","Route.Longitude","Route.Latitude",
             "YEAR","Wind.Speed.Code","Sky.Condition.Code","Background.Noise.Code",
             "X..Cars",
         "X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D..x",
@@ -393,20 +464,31 @@ me <- me[,c("Point.Count..","ROUTE",
 me <- separate(me, col="Point.Count..", into=c("id","Route.Stop"),
                remove=T, sep="-")
 names(me) <- c("id","Route.Stop","name","created_at",
-               "UTM.first","UTM.second","year",
+               "Route.Longitude","Route.Latitude","year",
                "wind","sky","noise","cars","moon","species",
                "min.1","min.2","min.3","min.4","min.5","min.6")
 me$state <- "ME"
 
-#NAD83 zone 19? EPSG:26919
-me.utm.sf <- st_as_sf(me, coords=c("UTM.first","UTM.second"), crs=26919)
-me.latlong.sf <- st_transform(me.utm.sf, crs=crs(AF_states))
-me.coords <- data.frame(st_coordinates(me.latlong.sf))
-names(me.coords) <- c("Route.Longitude","Route.Latitude")
-me <- cbind(me, me.coords)
+#add in other columns in nh
 me$updated_at <- ""
 me$dir <- ""
 me$stop_des <- ""
+
+#####
+# Delaware
+#####
+de <- read.csv("../Data_raw/CombinedData/DE_Nightjar Survey 2023.csv", header = T)
+names(de) <- c("created_at","id","Route.Stop","Route.Latitude","Route.Longitude","wind","sky","noise","moon","species",
+               "min.1","min.2","min.3","min.4","min.5","min.6")
+de$updated_at <- ""
+de$dir <- ""
+de$stop_des <- ""
+de$cars <- ""
+de$year <- 2023
+de$name <- "Milford Neck"
+de$state <- "DE"
+
+de$species <- toupper(de$species)
 
 #
 names(nh)
@@ -434,14 +516,29 @@ ct$state <- "CT"
 ct$Route.Longitude <- -ct$Route.Longitude
 ct$id <- ct$name
 
+ct.obs.all$Route.Stop <- as.numeric(substr(ct.obs.all$PointID, start=nchar(ct.obs.all$PointID)-1, stop=nchar(ct.obs.all$PointID)))
+
+ct <- merge(ct, ct.obs.all[,!names(ct.obs.all) %in% c("PointID","ProjectName","file")], all.x=T, by.x=c("name","Route.Stop","year"), by.y=c("RouteName","Route.Stop","year"))
+names(ct) <- gsub(names(ct), pattern="Interval", replacement="min.")
+
+ct$min.1 <- as.numeric(ct$min.1)
+ct$min.2 <- as.numeric(ct$min.2)
+ct$min.3 <- as.numeric(ct$min.3)
+ct$min.4 <- as.numeric(ct$min.4)
+ct$min.5 <- as.numeric(ct$min.5)
+ct$min.6 <- as.numeric(ct$min.6)
+
+#remove intervals 7-10
+ct <- ct[,!names(ct) %in% c("min.7","min.8","min.9","min.10")]
+
 #combine all non-nsn state data together
-non.nsn.master <- rbind(nh, ny[,names(nh)], vt[,names(nh)], me[,names(nh)])
+non.nsn.master <- rbind(nh, ny[,names(nh)], vt[,names(nh)], me[,names(nh)], de[,names(nh)])
 non.nsn.master$TotalDetections <-
   rowSums(non.nsn.master[,grep(names(non.nsn.master),
                                pattern="min.")])
-non.nsn.master$MaxDetections <- 
+suppressWarnings(non.nsn.master$MaxDetections <- 
   apply(non.nsn.master[,grep(names(non.nsn.master), pattern="min.")],
-        1, function(x) max(x, na.rm=T))
+        1, function(x) max(x, na.rm=T)))
 non.nsn.master[non.nsn.master$MaxDetections == "-Inf",]$MaxDetections <- NA
 non.nsn.master$Route.Stop <- as.numeric(non.nsn.master$Route.Stop)
 non.nsn.master <- bind_rows(non.nsn.master, ct)

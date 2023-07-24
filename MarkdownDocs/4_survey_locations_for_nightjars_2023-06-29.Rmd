@@ -8,6 +8,9 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
+#load packages
+require(plyr)
+
 #for GIS
 require(sf)
 require(raster)
@@ -146,14 +149,13 @@ for(s in unique(AF_states$ST))
     scale_shape_manual(values=c(1,19)) + scale_color_manual(values=c("gray50","black")) +
     coord_sf(xlim=c(ex.s@xmin, ex.s@xmax), ylim=c(ex.s@ymin, ex.s@ymax)) +
     theme_bw(base_size=20) + theme(panel.grid=element_blank())
-  ggsave(filename = paste("../Figures/random_points_3k/randompts_", s, ".tiff", sep=""),
-         height=8, width=8, units="in", dpi=400, compression="lzw")
+  # ggsave(filename = paste("../Figures/random_points_3k/randompts_", s, ".tiff", sep=""),
+  #        height=8, width=8, units="in", dpi=400, compression="lzw")
 }
 # write.table(route.pts, file="../Data_processed/random_pts_area3k.txt", sep=",", row.names=F)
 #EPSG:4269
 ```
-
-## Determining whether we can keep existing routes
+## (Start Here) Determining whether we can keep existing routes
 compare with current survey locations
 ```{r, echo=T}
 random.routes <- read.table("../Data_processed/random_pts_area3k.txt", sep=",", header=T)
@@ -163,6 +165,8 @@ routes$st.route.stop <- paste(routes$st.route, routes$Stop, sep="..")
 
 random.sf <- st_as_sf(random.routes, coords=c("X","Y"), crs=crs(BCR.ST))
 routes.sf <- st_as_sf(routes[!is.na(routes$Latitude),], coords=c("Longitude","Latitude"), crs=crs(BCR.ST))
+
+# ggplot(data=routes.sf[routes.sf$state=="ME",]) + geom_sf()
 
 #calculate distance between points
 dist.routes <- st_distance(random.sf, routes.sf, by_element=F)
@@ -209,38 +213,71 @@ summary.need.have$num.remaining <- summary.need.have$num.random.need - summary.n
 
 # write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F)
 
-to_combine$selected <- factor(to_combine$selected)
-random.sf$selected <- factor(random.sf$selected)
+# to_combine$selected <- factor(to_combine$selected)
+# random.sf$selected <- factor(random.sf$selected)
+
+#can't seem to get the symbols and shapes correct with "selected" column
+to_combine$alternate <- 1-to_combine$selected
+random.sf$alternate <- 1-random.sf$selected
+
+to_combine$alternate <- factor(to_combine$alternate)
+random.sf$alternate <- factor(random.sf$alternate)
 
 for(st in unique(AF_states$ST))
 {
   print(st)
   #create sf objects from to_combine
-  random.st.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("X","Y"), crs=crs(BCR))
-  existing.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("Longitude","Latitude"), crs=crs(BCR))
+  # random.st.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("X","Y"), crs=crs(BCR.ST))
+  existing.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("Longitude","Latitude"), crs=crs(BCR.ST))
+  # all.random.sf <- random.sf[random.sf$ST == st &
+  #                              !random.sf$route_name %in% random.st.sf$route_name,]
+
+  
+  random.st.sf <- st_as_sf(to_combine, coords=c("X","Y"), crs=crs(BCR.ST))
+  # existing.sf <- st_as_sf(to_combine, coords=c("Longitude","Latitude"), crs=crs(BCR))
+
   all.random.sf <- random.sf[random.sf$ST == st &
-                               !random.sf$route_name %in% random.st.sf$route_name,]
+                               !random.sf$route_name %in% to_combine[to_combine$ST == st,]$route_name,]
   
   #plot
   ex <- extent(AF_states[AF_states$ST == st,])
-  ggplot() + 
+  plot <- ggplot() + 
     # geom_sf(data=AF_states[AF_states$ST == st,], fill=NA, col="grey75") + 
     geom_sf(data=BCR.ST, aes(fill=BCR), alpha=0.5) +
     scale_fill_brewer(palette="Set2") +
     
-    geom_sf(data=all.random.sf, aes(col=selected), pch=17, size=3) +
+    # geom_sf(data=all.random.sf, aes(col=selected), pch=17, size=3) + #random points
     
-    geom_sf(data=random.st.sf, aes(col=selected, shape=selected), stroke=1.5) +
-    scale_shape_manual(values=c(1,19)) + scale_color_manual(values=c("grey50","black")) +
+    # geom_sf(data=random.st.sf, aes(col=selected, shape=selected), stroke=1.5) +
+    # scale_shape_manual(values=c(1,19)) + scale_color_manual(values=c("grey50","black")) +
+    scale_shape_manual(values=c(19,1)) + scale_color_manual(values=c("black","grey50")) +
     
-    geom_sf(data=existing.sf, col="steelblue", aes(shape=selected)) + 
-    geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=selected), 
-                  stat = "sf_coordinates") +
-    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax)) +
+    # geom_sf(data=existing.sf, col="steelblue", aes(shape=selected)) + 
+    # geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=selected), stat = "sf_coordinates") +
+    # coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax)) +
     xlab("") + ylab("") +
     theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  
+  #only include points that were selected
+  plot + 
+    geom_sf(data=all.random.sf[all.random.sf$selected == 1,], aes(col=alternate), pch=17, size=3) + #triangle for random points without existing nearby
+    geom_sf(data=random.st.sf[random.st.sf$selected == 1,], aes(col=alternate, shape=alternate), stroke=1.5) + 
+    geom_sf(data=existing.sf[existing.sf$selected == 1,], col="steelblue", aes(shape=alternate)) + 
+    geom_text_repel(data=existing.sf[existing.sf$selected == 1,],
+                    aes(label=st_route, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue") +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
+  ggsave(filename=paste("../Figures/random_3k_with_existing_no_alternates/random_existing_noalternates_",st,".tiff", sep=""),
+         height=18, width=18, units="in", dpi=400, compression="lzw")
+  
+  #all selected and alternate points
+  plot + 
+    geom_sf(data=all.random.sf, aes(col=alternate), pch=17, size=5) + 
+    geom_sf(data=random.st.sf, aes(col=alternate, shape=alternate), stroke=1.5) +
+    geom_sf(data=existing.sf, col="steelblue", aes(shape=alternate)) + scale_shape_manual(values=c(19,1)) +
+    geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=alternate), stat = "sf_coordinates") +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
   #blue dots = existing points, black dots = randomly distributed locations
   ggsave(filename=paste("../Figures/random_3k_with_existing/random_existing_",st,".tiff", sep=""),
-         height=15, width=15, units="in", dpi=400, compression="lzw")
+         height=18, width=18, units="in", dpi=400, compression="lzw")
 }
 ```

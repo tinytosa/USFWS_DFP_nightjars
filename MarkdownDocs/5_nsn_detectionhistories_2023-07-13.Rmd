@@ -5,6 +5,10 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
+assumptions when combining data:
+1. order of data entered for survey covariates was in order of route (e.g., stop 1 info entered before stop 2 info)
+2. duplicate entries of observations per stop per species were assumed to be correct (e.g., if 2 observations entered for survey 1 stop 2, assumed multiple surveys were conducted at the stop). This is likely not true, but no way to correct this information without datasheets, etc.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T)
 
@@ -23,16 +27,19 @@ require(ggplot2)
 
 ## load all data 
 ```{r}
-AF_states <- st_read(dsn="../../GIS", layer="AF_states") 
+AF_states <- st_read(dsn="../../GIS", layer="AF_states")
 
 master.nsn <- read.table(file="../Data_processed/master_nsn_2023-07-24.txt", sep=",", header=T) #latitude and longitude as flipped
 master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
+
+master.nsn <- master.nsn[!is.na(master.nsn$created_at.obs),] #go from 71,444 obs to 39,658 obs after removing rows without observation data
 
 #convert t/f data to presence/absence data
 master.nsn$stop_des <- ""
 master.nsn$cars <- NA
 master.nsn$dir <- NA
 
+#convert date to julian day
 master.nsn$start_date_j <- as.POSIXlt(master.nsn$start_date, tz="GMT", format="%Y-%m-%d")$yday
 
 #convert time of day to something continuous
@@ -43,58 +50,134 @@ master.nsn <- separate(master.nsn, col="start_hour", sep=":", into=c("hour","min
 
 master.nsn$start_time_s <- sin((as.numeric(master.nsn$hour)*60*60 + 
                                   as.numeric(master.nsn$min)*60 + 
-                                  as.numeric(master.nsn)$sec)/seconds_in_day*(2*pi))
+                                  as.numeric(master.nsn$sec))/seconds_in_day*(2*pi))
+plot(as.numeric(master.nsn$hour), master.nsn$start_time_s) #looks good
+#but some people did surveys in the middle of the day? From 11 am - 2 pm? 12 pm - 2 pm? 3pm?
 
-nsn <- master.nsn[,c("route_id.char","stop_mit","state.rtid","name","start_date_j","start_month","start_hour_s","Longitude","Latitude",
+#give categorical value to hour
+master.nsn$hour <- as.numeric(master.nsn$hour)
+master.nsn$start_time_cat <- NA
+master.nsn[master.nsn$hour < 4 & !is.na(master.nsn$hour),]$start_time_cat <- "night"
+master.nsn[master.nsn$hour >= 4 & master.nsn$hour < 10 & !is.na(master.nsn$hour),]$start_time_cat <- "dawn"
+master.nsn[master.nsn$hour >= 10 & master.nsn$hour < 17 & !is.na(master.nsn$hour),]$start_time_cat <- "day"
+master.nsn[master.nsn$hour >= 17 & master.nsn$hour < 22 & !is.na(master.nsn$hour),]$start_time_cat <- "dusk"
+master.nsn[master.nsn$hour >= 22 & !is.na(master.nsn$hour),]$start_time_cat <- "night"
+
+nsn <- master.nsn[,c("route_id.char","stop_mit","state.rtid","name","start_date_j","start_month","hour","start_time_s","start_time_cat",
+                     "Longitude","Latitude",
                      "start_year","stop_des","wind_id","sky_id","noise_id","cars","moon_visible","dir",
                      "code","heard_minute_1","heard_minute_2","heard_minute_3","heard_minute_4","heard_minute_5","heard_minute_6")]
-names(nsn) <- c("id","Route.Stop","state","name","created_at","updated_at","Route.Latitude","Route.Longitude","year",
-                "stop_des","wind","sky","noise","cars","moon","dir","species","min.1","min.2","min.3","min.4","min.5","min.6")
+names(nsn) <- c("id","Route.Stop","state","name","start_date_j","start_month","hour","start_time_s","start_time_cat",
+                "Route.Latitude","Route.Longitude",
+                "year","stop_des","wind","sky","noise","cars","moon","dir",
+                "species","min.1","min.2","min.3","min.4","min.5","min.6")
 
 #replace all t values with 1, all f values with 0
 # nsn %>% mutate(min.1 = replace(min.1, min.1=="t", "1")) #only at one column
 nsn$moon <- gsub(nsn$moon, pattern="\\N", replacement=NA)
+nsn$sky <- gsub(nsn$sky, pattern="\\N", replacement=NA)
+nsn$wind <- gsub(nsn$moon, pattern="\\N", replacement=NA)
+nsn$noise <- gsub(nsn$noise, pattern="\\N", replacement=NA)
 
 nsn <- nsn %>% mutate_at(vars(moon,min.1,min.2,min.3,min.4,min.5,min.6), function(x) replace(x, x=="t",1)) #all min columns at once
 nsn <- nsn %>% mutate_at(vars(moon,min.1,min.2,min.3,min.4,min.5,min.6), function(x) replace(x, x=="f",0)) #all min columns at once
 nsn <- nsn %>% mutate_at(vars(wind,sky,min.1,min.2,min.3,min.4,min.5,min.6), function(x) as.integer(x)) #convert from character to integer
 #OK with warning (converting \\N to integer -> NA)
 
-#remove rows without lat/long information
-nsn <- nsn[!is.na(nsn$Route.Latitude),] #44,503 rows with location information
-nsn <- nsn[!is.na(nsn$year),] #41,975 rows with year information
+#remove rows without lat/long information? Maybe don't need to do this
+# nsn <- nsn[!is.na(nsn$Route.Latitude),] #23,317 rows with location information
 
-nsn.af <- nsn[nsn$state %in% AF_states$ST,]
+nsn <- nsn[!is.na(nsn$year),] #remove rows without year info
+nrow(nsn) #39,279 rows with year information
+
+#only AF data
+nsn.af <- nsn[nsn$state %in% AF_states$ST,] #subset data for AF states
+nrow(nsn.af) #17,689 rows with year information (didn't remove sites if they didnt have lat/long)
 
 #  [1] "id"              "Route.Stop"      "state"           "name"            "created_at"      "updated_at"      "Route.Latitude"  "Route.Longitude"
 #  [9] "year"            "stop_des"        "wind"            "sky"             "noise"           "cars"            "moon"            "dir"            
 # [17] "species"         "min.1"           "min.2"           "min.3"           "min.4"           "min.5"           "min.6"           "TotalDetections"
 # [25] "MaxDetections"
 
-non.nsn <- master.nonnsn[!is.na(master.nonnsn$year),]
-
-#to combine nsn and non.nsn
 nsn.af$id <- as.character(nsn.af$id)
 nsn.af$year <- as.integer(nsn.af$year) #OK to ignore warning about NAs
-nsn.af$TotalDetections <- rowSums(nsn.af[,18:23]) #min.1 through min.6
-suppressWarnings(nsn.af$MaxDetections <- apply(nsn.af[,18:23], 1, max, na.rm=T)) #min.1 through min.6
-nsn.af[is.na(nsn.af$species),]$species <- "NONE"
+nsn.af$TotalDetections <- rowSums(nsn.af[,grep(names(nsn.af), pattern="min.")]) #min.1 through min.6, columns 19:24
+suppressWarnings(nsn.af$MaxDetections <- apply(nsn.af[,grep(names(nsn.af), pattern="min.")], 1, max, na.rm=T)) #min.1 through min.6
+# nsn.af[is.na(nsn.af$species),]$species <- "NONE"
+nsn.af$noise <- as.integer(nsn.af$noise)
 
+##########
+#adjust non.nsn data
+##########
+master.nonnsn[master.nonnsn$start_hour %in% "",]$start_hour <- NA
+master.nonnsn <- separate(master.nonnsn, col="start_hour", sep=":", into=c("hour","min","sec"), remove=F)
+# master.nonnsn[!is.na(master.nonnsn$start_hour),]$sec <- 0
+
+master.nonnsn$start_time_s <- sin((as.numeric(master.nonnsn$hour)*60*60 +
+                                     as.numeric(master.nonnsn$min)*60 #+ as.numeric(master.nsn$sec)
+                                     )/seconds_in_day*(2*pi))
+plot(as.numeric(master.nonnsn$hour), master.nonnsn$start_time_s)
+
+master.nonnsn$start_date_j <- as.POSIXlt(master.nonnsn$start_date, tz="GMT", format="%m/%d/%Y")$yday
+
+master.nonnsn$hour <- as.numeric(master.nonnsn$hour)
+table(master.nonnsn$hour)
+
+master.nonnsn$start_time_cat <- NA
+master.nonnsn[master.nonnsn$hour < 4 & !is.na(master.nonnsn$hour),]$start_time_cat <- "night"
+master.nonnsn[master.nonnsn$hour >= 4 & master.nonnsn$hour < 10 & !is.na(master.nonnsn$hour),]$start_time_cat <- "dawn"
+# master.nonnsn[master.nonnsn$hour >= 10 & master.nonnsn$hour < 17 & !is.na(master.nonnsn$hour),]$start_time_cat <- "day" #no times during the day
+master.nonnsn[master.nonnsn$hour >= 17 & master.nonnsn$hour < 22 & !is.na(master.nonnsn$hour),]$start_time_cat <- "dusk"
+master.nonnsn[master.nonnsn$hour >= 22 & !is.na(master.nonnsn$hour),]$start_time_cat <- "night"
+
+non.nsn <- master.nonnsn[!is.na(master.nonnsn$year),] #11,362 rows
+non.nsn <- non.nsn[,names(non.nsn) %in% names(nsn)]
+
+############
 #combine nsn and non.nsn survey information
-nightjars <- bind_rows(nsn.af, non.nsn) #27,599 rows
-nightjars$st_id <- paste(nightjars$state, nightjars$id, sep="-")
+############
+nightjars <- bind_rows(nsn.af, non.nsn) #29,051 rows
+nrow(nightjars)
+nightjars$st_id <- paste(nightjars$state, nightjars$id, sep="--")
+
+table(nightjars[is.na(nightjars$species),c("state","year")]) #see which surveys don't have species information
+
+#delaware stop 8 was not surveyed. needs to stay NA. ME data not provided yet as of 8/1/2023. remove from data frame
+nightjars <- nightjars[!is.na(nightjars$species),]
+
+unique(nightjars$species)
 
 #########
 #remove duplicated survey entries
-nightjars <- nightjars[order(nightjars$updated_at, nightjars$st_id),] #start with 27,599 rows
-nightjars <- nightjars[!duplicated(nightjars[,c("id","Route.Stop","state","name","created_at","Route.Latitude","Route.Longitude",
-                                                "year","wind","sky","noise","species","min.1","min.2","min.3","min.4","min.5","min.6",
-                                                "TotalDetections","MaxDetections","st_id")]),] #end with 21,242 rows
+#don't need to do this any more? after changing the order of combining data tables?
+# nightjars <- nightjars[order(nightjars$updated_at, nightjars$st_id),] #start with 27,599 rows
+# nightjars <- nightjars[!duplicated(nightjars[,c("id","Route.Stop","state","name","Route.Latitude","Route.Longitude",
+#                                                 "year","wind","sky","noise","species","min.1","min.2","min.3","min.4","min.5","min.6",
+#                                                 "TotalDetections","MaxDetections","st_id")]),] #end with 21,242 rows
+
+nightjars <- nightjars[order(nightjars$year, nightjars$st_id, nightjars$Route.Stop),] #28,263 rows
+
 nightjars$Route.Latitude <- round(nightjars$Route.Latitude, digits=5)
 nightjars$Route.Longitude <- round(nightjars$Route.Longitude, digits=5)
 nrow(nightjars)
 
+table(nightjars$state)
+ #  CT   DE   FL   GA   MD   ME   NC   NH   NY   PA   SC   VA   WV 
+ # 658    9 5944 1455  474 6136 4179 1897 1886 1214 2052 2320   39
+
+table(nightjars$species)
+ # ANNI  CONI  CWWI  EWPW  MWPW  NONE 
+ #    2  1397 10296  8476     2  8090 
+
 #make sure species = none gets detections of 0
+#mostly ME sites
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.1),]$min.1 <- 0
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.2),]$min.2 <- 0
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.3),]$min.3 <- 0
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.4),]$min.4 <- 0
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.5),]$min.5 <- 0
+# nightjars[nightjars$species %in% "NONE" & !is.na(nightjars$min.6),]$min.6 <- 0
+
 nightjars[nightjars$species %in% "NONE",]$min.1 <- 0
 nightjars[nightjars$species %in% "NONE",]$min.2 <- 0
 nightjars[nightjars$species %in% "NONE",]$min.3 <- 0
@@ -102,15 +185,15 @@ nightjars[nightjars$species %in% "NONE",]$min.4 <- 0
 nightjars[nightjars$species %in% "NONE",]$min.5 <- 0
 nightjars[nightjars$species %in% "NONE",]$min.6 <- 0
 
-# site.info <- unique(nightjars[,c("Route.Latitude","Route.Longitude","year","st_id","id","Route.Stop","state","wind","sky","noise","cars","moon")])
+#need to fix NAs for CT
 
 #DON'T NEED TO DO THIS
+# site.info <- unique(nightjars[,c("Route.Latitude","Route.Longitude","year","st_id","id","Route.Stop","state","wind","sky","noise","cars","moon")])
 # #create obs covariates for each minute?
 # #repeat each row 6 times for each minute
 # site.minute.info <- as.data.frame(lapply(site.info, rep, each=6))
 # site.minute.info$minute <- rep(1:6, nrow(site.info))
 # site.minute.info$site <- paste(site.minute.info$st_id, site.minute.info$Route.Stop, sep=".")
-
 
 # #data frame of the unique st_id and Route.Stop per year
 # #to determine which routes were surveyed each year (help fill in 0 detections of each species?)
@@ -137,94 +220,96 @@ nightjars[nightjars$species %in% "NONE",]$min.6 <- 0
 
 ## see how many surveys per stop per year
 helps find duplicate survey entries
+skip this
 ```{r}
-# table(nightjars[,c("id","Route.Stop","year")])
-route.stop.year.surveys <- ddply(nightjars, .(st_id, Route.Stop, year, species), summarize, numsurveys=length(TotalDetections))
-
-route.stop.year.surveys <- route.stop.year.surveys[!is.na(route.stop.year.surveys$st_id),]
-
-wide <- array(data=0, dim=c(12, length(unique(route.stop.year.surveys$st_id)), length(2007:2023))) # 12 Stops, 435 routes, 17 years
-
-for(s in 1:12) #for each stop
-{
-  print(s)
-  s.route.year.survey <- route.stop.year.surveys[route.stop.year.surveys$Route.Stop == s & route.stop.year.surveys$species == "EWPW",]
-  s.route.year.survey <- s.route.year.survey[!is.na(s.route.year.survey$year),]
-  s.route.year.survey <- s.route.year.survey[order(s.route.year.survey$year),] #rearrange rows so columns are in order of year starting with 2007
-  s.route.year.survey <- rbind(data.frame(st_id="test", Route.Stop=13, species="CONI", year=2007:2023, numsurveys=0), s.route.year.survey)
-  s.wide <- pivot_wider(s.route.year.survey, values_from=numsurveys, names_from=year)
-  s.wide <- merge(s.wide, data.frame(routes=unique(route.stop.year.surveys$st_id)), by.x="st_id",by.y="routes", all.y=T) #make sure all sites are present
-  s.wide[is.na(s.wide)] <- 0
-  print(dim(s.wide))
-  wide[s,,] <- as.matrix(s.wide[,4:20])
-}
-
-wide[1,,] #stop 1
-wide[2,,] #stop 2
-
-stop1 <- data.frame(wide[1,,])
-row.names(stop1) <- unique(route.stop.year.surveys$st_id)
-colnames(stop1) <- paste("y",2007:2023, sep="")
-
-nightjars[nightjars$st_id == "FL-250132" & nightjars$year == 2014 & nightjars$species == "CONI",]
+# # table(nightjars[,c("id","Route.Stop","year")])
+# route.stop.year.surveys <- ddply(nightjars, .(st_id, Route.Stop, year, species), summarize, numsurveys=length(TotalDetections))
+# 
+# route.stop.year.surveys <- route.stop.year.surveys[!is.na(route.stop.year.surveys$st_id),]
+# 
+# wide <- array(data=0, dim=c(12, length(unique(route.stop.year.surveys$st_id)), length(2007:2023))) # 12 Stops, 435 routes, 17 years
+# 
+# for(s in 1:12) #for each stop
+# {
+#   print(s)
+#   s.route.year.survey <- route.stop.year.surveys[route.stop.year.surveys$Route.Stop == s & route.stop.year.surveys$species == "EWPW",]
+#   s.route.year.survey <- s.route.year.survey[!is.na(s.route.year.survey$year),]
+#   s.route.year.survey <- s.route.year.survey[order(s.route.year.survey$year),] #rearrange rows so columns are in order of year starting with 2007
+#   s.route.year.survey <- rbind(data.frame(st_id="test", Route.Stop=13, species="CONI", year=2007:2023, numsurveys=0), s.route.year.survey)
+#   s.wide <- pivot_wider(s.route.year.survey, values_from=numsurveys, names_from=year)
+#   s.wide <- merge(s.wide, data.frame(routes=unique(route.stop.year.surveys$st_id)), by.x="st_id",by.y="routes", all.y=T) #make sure all sites are present
+#   s.wide[is.na(s.wide)] <- 0
+#   # print(dim(s.wide))
+#   wide[s,,] <- as.matrix(s.wide[,4:20])
+# }
+# 
+# # wide[1,,] #stop 1
+# # wide[2,,] #stop 2
+# 
+# stop1 <- data.frame(wide[1,,])
+# row.names(stop1) <- unique(route.stop.year.surveys$st_id)
+# colnames(stop1) <- paste("y",2007:2023, sep="")
+# 
+# # nightjars[nightjars$st_id == "FL-250132" & nightjars$year == 2014 & nightjars$species == "CONI",]
 
 ```
 
 ## create detection history template
 based on Cara's det_hist_prep.R code and Marie's 3_occupancy_detectionhistory_template_2022-10-05.R
+skip this too since want stacked data format
 ```{r, echo=T}
-beg <- 2007
-end <- 2022
-
-nMins <- 6
-
-nC <- length(beg:end)*nMins
-
-t <- paste(rep(paste("y", 2007:2022, sep=""), each=nMins), 
-           rep(paste("m", 1:6, sep=""), length(2007:2022)), sep="")
-
-#make empty detection history template
-det.hist <- data.frame('site' = rep(paste(sites$st_id, sites$Route.Stop, sep="."), each=nC),
-                       'year-min'=rep(t, nrow(sites)))
-
-head(det.hist)
-dim(det.hist) #one row for each site per year per minute
-nrow(sites) * nC
-
-#need to turn detections of each species into long form
-nightjars$site <- paste(nightjars$st_id, nightjars$Route.Stop, sep="..")
-sites$site <- paste(sites$st_id, sites$Route.Stop, sep=".")
-
-# site.years.min <- data.frame(s=rep(paste(site.years$site, site.years$year, sep="_"), each=6), minute=rep(1:6, nrow(site.years)))
-# site.years.min <- separate(site.years.min, col="s", sep="_", into=c("site","year"))
-
-ewpw <- nightjars[nightjars$species == "EWPW",]
-# ewpw <- ewpw[,c("site","year","wind","sky","noise","cars","moon","min.1","min.2","min.3","min.4","min.5","min.6")]
-ewpw <- ewpw[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #could use this for stacked occupancy models, but need to add in 0s of sites surveyed, but not detected
-
-#for dynamic occupancy
-ewpw.long <- pivot_longer(data=ewpw, cols=min.1:min.6, names_to="minute", values_to="detection")
-ewpw.long$minute <- as.numeric(gsub(ewpw.long$minute, pattern="min.", replacement=""))
-
-cwwi <- nightjars[nightjars$species == "CWWI",]
-coni <- nightjars[nightjars$species == "CONI",]
-
-#merge with sites
-# ewpw.long.sites <- merge(ewpw.long, site.minute.info[,c("site","year","minute")], by=c("site","year","minute"), all.y=T) #necessary to add in 0s vs. NAs
-ewpw.long.sites <- merge(ewpw.long, site.info[,c("site","year")], by=c("site","year"), all.y=T) #necessary to add in 0s vs. NAs
-
-ewpw.long.sites[is.na(ewpw.long.sites$detection),]$detection <- 0
-ewpw.long.sites$year.min <- paste("y", ewpw.long.sites$year, "m", ewpw.long.sites$minute, sep="")
-
-#merge with det.hist
-ewpw.dethist.long <- merge(ewpw.long.sites[!duplicated(ewpw.long.sites[,c("site","year.min")]),], 
-                           #####take first non-duplicated row...come back to this#######
-                           det.hist, by=c("site","year.min"), all.y=T)
-
-#convert from long to wide
-ewpw.dethist.wide <- pivot_wider(ewpw.dethist.long[,c("site","year.min","detection")], values_from=detection, names_from=year.min)
-
-write.csv(ewpw.dethist.wide, file="../Data_processed/occupancy_detectionhistory_EWPW.csv", row.names=F)
+# beg <- 2007
+# end <- 2022
+# 
+# nMins <- 6
+# 
+# nC <- length(beg:end)*nMins
+# 
+# t <- paste(rep(paste("y", 2007:2022, sep=""), each=nMins), 
+#            rep(paste("m", 1:6, sep=""), length(2007:2022)), sep="")
+# 
+# #make empty detection history template
+# det.hist <- data.frame('site' = rep(paste(sites$st_id, sites$Route.Stop, sep="."), each=nC),
+#                        'year-min'=rep(t, nrow(sites)))
+# 
+# head(det.hist)
+# dim(det.hist) #one row for each site per year per minute
+# nrow(sites) * nC
+# 
+# #need to turn detections of each species into long form
+# nightjars$site <- paste(nightjars$st_id, nightjars$Route.Stop, sep="..")
+# sites$site <- paste(sites$st_id, sites$Route.Stop, sep=".")
+# 
+# # site.years.min <- data.frame(s=rep(paste(site.years$site, site.years$year, sep="_"), each=6), minute=rep(1:6, nrow(site.years)))
+# # site.years.min <- separate(site.years.min, col="s", sep="_", into=c("site","year"))
+# 
+# ewpw <- nightjars[nightjars$species == "EWPW",]
+# # ewpw <- ewpw[,c("site","year","wind","sky","noise","cars","moon","min.1","min.2","min.3","min.4","min.5","min.6")]
+# ewpw <- ewpw[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #could use this for stacked occupancy models, but need to add in 0s of sites surveyed, but not detected
+# 
+# #for dynamic occupancy
+# ewpw.long <- pivot_longer(data=ewpw, cols=min.1:min.6, names_to="minute", values_to="detection")
+# ewpw.long$minute <- as.numeric(gsub(ewpw.long$minute, pattern="min.", replacement=""))
+# 
+# cwwi <- nightjars[nightjars$species == "CWWI",]
+# coni <- nightjars[nightjars$species == "CONI",]
+# 
+# #merge with sites
+# # ewpw.long.sites <- merge(ewpw.long, site.minute.info[,c("site","year","minute")], by=c("site","year","minute"), all.y=T) #necessary to add in 0s vs. NAs
+# ewpw.long.sites <- merge(ewpw.long, site.info[,c("site","year")], by=c("site","year"), all.y=T) #necessary to add in 0s vs. NAs
+# 
+# ewpw.long.sites[is.na(ewpw.long.sites$detection),]$detection <- 0
+# ewpw.long.sites$year.min <- paste("y", ewpw.long.sites$year, "m", ewpw.long.sites$minute, sep="")
+# 
+# #merge with det.hist
+# ewpw.dethist.long <- merge(ewpw.long.sites[!duplicated(ewpw.long.sites[,c("site","year.min")]),], 
+#                            #####take first non-duplicated row...come back to this#######
+#                            det.hist, by=c("site","year.min"), all.y=T)
+# 
+# #convert from long to wide
+# ewpw.dethist.wide <- pivot_wider(ewpw.dethist.long[,c("site","year.min","detection")], values_from=detection, names_from=year.min)
+# 
+# write.csv(ewpw.dethist.wide, file="../Data_processed/occupancy_detectionhistory_EWPW.csv", row.names=F)
 
 ```
 
@@ -235,69 +320,166 @@ write.csv(ewpw.dethist.wide, file="../Data_processed/occupancy_detectionhistory_
 
 st.bcr <- read.csv("../Data_processed/route_bcr_state.csv")
 
+#check all state-id combos are in st.bcr
+nightjars[!paste(nightjars$state, nightjars$id, sep="__") %in% paste(st.bcr$state, st.bcr$route_id.char, sep="__"), ]
+unique(nightjars[!paste(nightjars$state, nightjars$id, sep="__") %in% paste(st.bcr$state, st.bcr$route_id.char, sep="__"), ]$st_id)
+# routes without location information (all from NSN data)
+#   [1] "FL--251227" "FL--255710" "FL--256180" "FL--256606" "FL--256925"
+#   [6] "FL--257284" "FL--259009" "FL--259010" "FL--259011" "FL--259296"
+#  [11] "FL--259351" "FL--259354" "FL--259355" "FL--259358" "FL--259359"
+#  [16] "FL--259363" "FL--259367" "FL--259374" "FL--259375" "FL--259380"
+#  [21] "FL--259384" "FL--259386" "FL--259390" "FL--259393" "GA--279012"
+#  [26] "GA--279332" "GA--279336" "GA--279337" "GA--279338" "GA--279339"
+#  [31] "GA--279340" "GA--279341" "GA--279342" "GA--279344" "GA--279345"
+#  [36] "GA--279348" "GA--279349" "GA--279350" "GA--279354" "GA--279355"
+#  [41] "MA--14"     "MD--981235" "MD--981236" "MD--981237" "ME--5"     
+#  [46] "ME--6"      "ME--7"      "NC--631636" "NC--638167" "NC--639017"
+#  [51] "NC--639019" "NC--639319" "NC--639320" "NC--639321" "NC--639322"
+#  [56] "NC--639323" "NC--639324" "NC--639325" "NC--639326" "NC--639327"
+#  [61] "NC--639328" "NC--639329" "NC--639330" "NC--639331" "NC--639332"
+#  [66] "NC--639333" "NC--639334" "NC--639335" "NC--639336" "NC--639337"
+#  [71] "NC--639338" "NC--639339" "NC--639340" "NC--639341" "NC--639342"
+#  [76] "NC--639343" "NC--639344" "NC--639345" "NC--639346" "NC--639347"
+#  [81] "NC--639348" "NC--639349" "NC--639350" "NC--639351" "NC--639352"
+#  [86] "NC--639354" "NC--639355" "NC--639356" "NC--639357" "NC--639358"
+#  [91] "NC--639359" "NC--639370" "NC--639374" "NC--639377" "NC--639379"
+#  [96] "NC--639381" "NC--639383" "NC--639384" "NC--639387" "NC--639389"
+# [101] "NC--639392" "NC--639396" "NC--639398" "NC--639399" "NC--639400"
+# [106] "NC--639401" "NC--639402" "NC--639404" "NC--639409" "NC--639412"
+# [111] "NH--16"     "NH--18"     "PA--720071" "PA--722018" "PA--729270"
+# [116] "PA--729719" "PA--729722" "PA--729723" "PA--729724" "PA--729730"
+# [121] "PA--729732" "PA--729735" "PA--729736" "PA--729737" "PA--729738"
+# [126] "PA--729739" "PA--729747" "PA--729748" "PA--729750" "PA--729751"
+# [131] "PA--729752" "PA--729757" "PA--729759" "SC--801850" "SC--803736"
+# [136] "SC--803738" "SC--803739" "SC--803740" "SC--803743" "SC--803747"
+# [141] "SC--803748" "SC--803750" "SC--803751" "SC--803752" "SC--803755"
+# [146] "SC--803758" "SC--803759" "SC--803760" "SC--803761" "SC--803762"
+# [151] "SC--803763" "SC--803764" "SC--803765" "VA--881675" "VA--883203"
+# [156] "VA--886865" "VA--889026" "VA--889322" "VA--889503" "VA--889505"
+# [161] "VA--889506" "VA--889507" "VA--889509" "VA--889515" "VA--889517"
+# [166] "VA--889518" "VA--889520" "VA--889525" "VA--889527" "VA--889528"
+# [171] "VA--889530" "VA--889531" "VA--889536" "VA--889537" "VA--889539"
+# [176] "VA--889542" "VA--889543" "VA--889544" "VA--889546" "VA--889549"
+# [181] "VA--889551" "VA--889552" "VA--889553" "VA--889554" "VA--889556"
+# [186] "VA--889557" "VA--889558" "VA--889560" "VA--889562" "VA--889566"
+# [191] "VA--889570" "VA--889571" "VA--889573" "VA--889574" "VA--889575"
+# [196] "VA--889578" "VA--889581" "VA--889582" "VA--889586" "VA--889587"
+# [201] "VA--889592" "VA--889593" "VA--889596" "WV--909246" "WV--909247"
+# [206] "WV--909252" "WV--909254" "WV--909255" "WV--909256"
+#
+
 nightjars <- merge(nightjars, st.bcr[,c("route_id.char","state","BCR")], by.x=c("state","id"), by.y=c("state","route_id.char"), all.x=T)
-nightjars[is.na(nightjars$BCR),]  #check to see if all surveys were assigned a bcr
+unique(nightjars[is.na(nightjars$BCR),]$st_id)  #check to see if all surveys were assigned a bcr, no :( these are sites without lat/long info
 
-nightjars$site <- paste(nightjars$st_id, nightjars$Route.Stop, sep="..")
+nightjars$site <- paste(nightjars$st_id, nightjars$Route.Stop, sep="..") #add stop to site name (st_id + Route.Stop)
 
-#all sites that were surveyed each year
-site.years <- unique(nightjars[,c("site","Route.Latitude","Route.Longitude","year","st_id","id","Route.Stop","state","BCR",
-                                  "wind","sky","noise","cars","moon")])
-covars <- site.years[,c("site","year","BCR","wind","sky","noise","cars","moon")] #site has route.stop embedded in it
-covars[duplicated(covars[,c("site","year")]),]
+#####
+write.table(nightjars, file="../Data_processed/master_2023-07-24.txt", sep=",", row.names=F)
+#id is the same as route
 
+#####
+#this isn't really useful for anything since can't merge it with stuff later
+# #all sites that were surveyed each year
+# site.years <- unique(nightjars[,c("site","Route.Latitude","Route.Longitude","year","st_id","id","Route.Stop","state","BCR",
+#                                   "wind","sky","noise","cars","moon",
+#                                   "start_date_j","start_month","start_time_s")])
+# nrow(site.years) #27,927 site-years
+# 
+# #necessary to remove duplicated site-years
+# covars <- site.years[,c("site","year","BCR","wind","sky","noise","cars","moon",
+#                         "start_date_j","start_month","start_hour_s")] #site has route.stop embedded in it
+# covars[duplicated(covars[,c("site","year")]),]
+
+
+############
+#remove 2nd and 3rd surveys from Maine data so it's comparable with other data
+me.nightjars <- nightjars[nightjars$state == "ME",] #6136 rows
+
+me.nightjars <- me.nightjars %>% #take first row of each group
+  group_by(site, year, species) %>%
+  arrange(start_date_j) %>%
+  filter(row_number()==1)
+nrow(me.nightjars) #3083 rows
+
+nightjars <- nightjars[!nightjars$state %in% "ME",]
+nightjars <- rbind(nightjars, me.nightjars) #add ME back in
+nrow(nightjars)
+
+############
+############
+#separate tables for each species
+#have to keep all covariates together with the data since there are duplicates of site observations (can't merge them together)
 ############
 #EWPW
 ############
-ewpw <- nightjars[nightjars$species == "EWPW",]
-ewpw <- ewpw[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #add 0 sites and siteCovs after
+# ewpw <- nightjars[nightjars$species == "EWPW",]
+# ewpw <- ewpw[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #add 0 sites and siteCovs after
 
-ewpw.allsites <- merge(ewpw, site.years[,c("site","year","BCR","wind","sky","noise","cars","moon")], by=c("site","year"), all.y=T) #add siteCovs
-ewpw.allsites[is.na(ewpw.allsites$min.1),]$min.1 <- 0
-ewpw.allsites[is.na(ewpw.allsites$min.2),]$min.2 <- 0
-ewpw.allsites[is.na(ewpw.allsites$min.3),]$min.3 <- 0
-ewpw.allsites[is.na(ewpw.allsites$min.4),]$min.4 <- 0
-ewpw.allsites[is.na(ewpw.allsites$min.5),]$min.5 <- 0
-ewpw.allsites[is.na(ewpw.allsites$min.6),]$min.6 <- 0
+ewpw <- nightjars
 
-nrow(ewpw.allsites) #
+ewpw1 <- ewpw %>% filter(species %in% c("EWPW")) #8476 rows #all ewpw rows
+nrow(ewpw1)
+# ewpw2 <- ewpw %>% filter(!species %in% c("EWPW")) %>% mutate_at(vars(matches("min")), ~0) #19,787 rows #all rows with other species
+ewpw2 <- ewpw %>% filter(!species %in% c("EWPW")) %>% mutate_at(vars(matches("min")), ~ifelse(is.na(.), NA, 0)) #if value is not NA, replace with 0
 
-write.csv(ewpw.allsites, file="../Data_processed/occupancy_detectionhistory_stacked_EWPW.csv", row.names=F)
+nrow(ewpw2)
+ewpw2$species <- "EWPW"
+ewpw2 <- ewpw2[!duplicated(ewpw2),] #remove duplicates
+
+ewpw <- rbind(ewpw1, ewpw2)
+ewpw <- ewpw[!duplicated(ewpw[,!names(ewpw) %in% "species"]),] #24,863 rows
+nrow(ewpw)
+
+# ewpw$species <- "EWPW"
+suppressWarnings(ewpw$MaxDetections <- apply(ewpw[,grep(names(ewpw), pattern="min.")], 1, function(x) max(x, na.rm=T)))
+suppressWarnings(ewpw$TotalDetections <- apply(ewpw[,grep(names(ewpw), pattern="min.")], 1, function(x) sum(x, na.rm=T)))
+
+write.csv(ewpw, file="../Data_processed/occupancy_detectionhistory_stacked_EWPW.csv", row.names=F)
 
 #########
 #CWWI
 #########
-cwwi <- nightjars[nightjars$species == "CWWI",]
-cwwi <- cwwi[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #add 0 sites and siteCovs after
+cwwi <- nightjars
 
-cwwi.allsites <- merge(cwwi, site.years[,c("site","year","BCR","wind","sky","noise","cars","moon")], by=c("site","year"), all.y=T) #add siteCovs
-cwwi.allsites[is.na(cwwi.allsites$min.1),]$min.1 <- 0
-cwwi.allsites[is.na(cwwi.allsites$min.2),]$min.2 <- 0
-cwwi.allsites[is.na(cwwi.allsites$min.3),]$min.3 <- 0
-cwwi.allsites[is.na(cwwi.allsites$min.4),]$min.4 <- 0
-cwwi.allsites[is.na(cwwi.allsites$min.5),]$min.5 <- 0
-cwwi.allsites[is.na(cwwi.allsites$min.6),]$min.6 <- 0
+cwwi1 <- cwwi %>% filter(species %in% c("CWWI")) #10,296 rows #all ewpw rows
+nrow(cwwi1)
+# cwwi2 <- cwwi %>% filter(!species %in% c("CWWI")) %>% mutate_at(vars(matches("min")), ~0) #17,967 rows #all rows with other species
+cwwi2 <- cwwi %>% filter(!species %in% c("CWWI")) %>% mutate_at(vars(matches("min")), ~ifelse(is.na(.), NA, 0))
+nrow(cwwi2)
+cwwi2$species <- "CWWI"
+cwwi2 <- cwwi2[!duplicated(cwwi2),] #remove duplicates
 
-nrow(cwwi.allsites)
-#14168 site-years
+cwwi <- rbind(cwwi1, cwwi2)
+cwwi <- cwwi[!duplicated(cwwi[,!names(cwwi) %in% "species"]),] #24,804 rows
+nrow(cwwi)
 
-write.csv(cwwi.allsites, file="../Data_processed/occupancy_detectionhistory_stacked_CWWI.csv", row.names=F)
+# cwwi$species <- "CWWI"
+suppressWarnings(cwwi$MaxDetections <- apply(cwwi[,grep(names(cwwi), pattern="min.")], 1, function(x) max(x, na.rm=T)))
+suppressWarnings(cwwi$TotalDetections <- apply(cwwi[,grep(names(cwwi), pattern="min.")], 1, function(x) sum(x, na.rm=T)))
+
+write.csv(cwwi, file="../Data_processed/occupancy_detectionhistory_stacked_CWWI.csv", row.names=F)
 
 
 #########
 #CONI
 #########
-coni <- nightjars[nightjars$species == "CONI",]
-coni <- coni[,c("site","year","min.1","min.2","min.3","min.4","min.5","min.6")] #add 0 sites and siteCovs after
+coni <- nightjars
 
-coni.allsites <- merge(coni, site.years[,c("site","year","BCR","wind","sky","noise","cars","moon")], by=c("site","year"), all.y=T) #add siteCovs
-coni.allsites[is.na(coni.allsites$min.1),]$min.1 <- 0
-coni.allsites[is.na(coni.allsites$min.2),]$min.2 <- 0
-coni.allsites[is.na(coni.allsites$min.3),]$min.3 <- 0
-coni.allsites[is.na(coni.allsites$min.4),]$min.4 <- 0
-coni.allsites[is.na(coni.allsites$min.5),]$min.5 <- 0
-coni.allsites[is.na(coni.allsites$min.6),]$min.6 <- 0
+coni1 <- coni %>% filter(species %in% c("CONI")) #1,397 rows #all coni rows
+nrow(coni1)
+# coni2 <- coni %>% filter(!species %in% c("CONI")) %>% mutate_at(vars(matches("min")), ~0) #26,866 rows #all rows with other species
+coni2 <- coni %>% filter(!species %in% c("CONI")) %>% mutate_at(vars(matches("min")), ~ifelse(is.na(.), NA, 0)) #replace values of all other species with 0 if not NA
+nrow(coni2)
+coni2$species <- "CWWI"
+coni2 <- coni2[!duplicated(coni2),] #remove duplicates
 
-nrow(coni.allsites)
+coni <- rbind(coni1, coni2)
+coni <- coni[!duplicated(coni[,!names(coni) %in% "species"]),] #24,063 rows
+nrow(coni)
 
+# coni$species <- "CONI"
+suppressWarnings(coni$MaxDetections <- apply(coni[,grep(names(coni), pattern="min.")], 1, function(x) max(x, na.rm=T)))
+suppressWarnings(coni$TotalDetections <- apply(coni[,grep(names(coni), pattern="min.")], 1, function(x) sum(x, na.rm=T)))
+
+write.csv(coni, file="../Data_processed/occupancy_detectionhistory_stacked_CONI.csv", row.names=F)
 ```

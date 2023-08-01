@@ -151,8 +151,7 @@ nsn$rt_code <- substr(nsn$Routeid.char, 3, 6)
 #determine states manually using graphing of points below
 
 summary(nsn)
-nsn.sf <- st_as_sf(nsn, coords=c("Latitude","Longitude"),
-                   crs=projection(AF_states))
+nsn.sf <- st_as_sf(nsn, coords=c("Latitude","Longitude"), crs=4269)
 plot(nsn.sf)
 
 # unique(nsn$Routeid)
@@ -211,7 +210,7 @@ nrow(rt.id) #removed 68 rows
 ##Try merging NSN data together to create master data frame
 
 rt.id = 4325 rows
-nsn = 3418 rows
+nsn = 3418 rows now 6002 rows?
 
 ```{r, echo=T}
 # # master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
@@ -257,22 +256,33 @@ nsn = 3418 rows
 #### merge in order that nsn people do it
 
 #1. add nsn.obs to nsn.sampling
-master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, suffixes=c(".obs",".sampling")) #68,359 rows
+
+  #check how many rows in nsn.obs don't have corresponding nsn.sampling
+  nsn.obs[!nsn.obs$survey_stop_id %in% nsn.sampling$id,] #none!
+
+  #check how many nsn.sampling don't have corresponding nsn.sampling
+  nsn.sampling[!nsn.sampling$id %in% nsn.obs$survey_stop_id,] #28,701 rows!!!
+  nrow(nsn.sampling[!nsn.sampling$id %in% nsn.obs$survey_stop_id,])
+
+master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, suffixes=c(".obs",".sampling")) #68,359 rows (nrow(nsn.obs + 28,701))
 
 #2. add nsn.time to master
 master <- merge(master, nsn.time, by.x="survey_id", by.y="id", all=T, suffixes=c("",".time")) #68,359 rows
 
 #3. add nsn to master
-nrow(nsn[!(nsn$Routeid %in% master$route_id),]) #2663 rows (roughly the number of rows added with the merge aka routes without observations)
+  nrow(nsn[!(nsn$Routeid %in% master$route_id),]) #2663 rows (roughly the number of rows added with the merge aka routes without observations)
 master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all=T, suffixes=c("",".route")) #71,024 rows
 
 #4. add rt.id to master
-nrow(rt.id[!(rt.id$corrected %in% master$route_id),]) #420 rows not in master already
+  nrow(rt.id[!(rt.id$corrected %in% master$route_id),]) #420 rows not in master already
 master <- merge(master, rt.id, by.x="route_id", by.y="corrected", all=T, suffixes=c("",".rtid")) #71,444 rows
 
 #5 add nsn.sp to master
 master <- merge(master, nsn.sp[,c("id","common_name","scientific_name","code")], by.x="species_id", by.y="id", all.x=T)
 
+master[,c("state","state.rtid")]
+
+master$state <- master$state.rtid
 
 #do this once
 # write.table(master, file="../Data_processed/master_nsn_2023-07-24.txt", sep=",", row.names=F)
@@ -408,6 +418,7 @@ vt[vt$id %in% "",]$id <- vt[vt$id %in% "",]$name
 #####
 # Maine
 #####
+#also has date and time of surveys
 me.sites <- read.csv(file="../Data_raw/CombinedData/ME_NIGHTJAR Master Point Count File 2018-2022_sampling.csv") #data 2018-2022
 
 #convert from NAD83 zone19 to lat/long
@@ -434,42 +445,56 @@ me.nightjar.obs[me.nightjar.obs$Species %in% "Chuck-will's-widow",]$Species <- "
 me.nightjar.obs[me.nightjar.obs$Species %in% "Eastern Whip-poor-will",]$Species <- "EWPW"
 me.nightjar.obs[me.nightjar.obs$Species %in% "Common Nighthawk",]$Species <- "CONI"
 
+#need to combine rows if same species, but different directions
+names(me.nightjar.obs)[!names(me.nightjar.obs) %in% "Direction"]
+me.nightjar.obs <- ddply(me.nightjar.obs, .(YEAR, Sampling.Event.ID, Observation.Date, Point.Count.., Sunset.Moonrise,
+                                            X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D.,
+                                            Species), 
+                         summarize, min.1=sum(Minute.1), min.2=sum(Minute.2), min.3=sum(Minute.3),
+                                    min.4=sum(Minute.4), min.5=sum(Minute.5), min.6=sum(Minute.6))
+
 #check which sites have data (all sites in me.sites were run up to 2022)
 unique(me.sites[!me.sites$Point.Count.. %in%
                   unique(me.obs$Point.Count..),]$Point.Count..)
 #all sites in me.sites have data associated with them (up to 2022)
 
 #check do all obs have sites?
-unique(me.obs[!me.obs$Point.Count.. %in%
-                  unique(me.sites$Point.Count..),]$Point.Count..)
+unique(me.obs[!me.obs$Point.Count.. %in% unique(me.sites$Point.Count..),]$Point.Count..)
 #yes all obs in me.obs have site data associated with them
 
-me <- merge(me.sites, me.nightjar.obs, by.x=c("Sampling.Event.UNIQUE.ID", "Point.Count..","YEAR"), by.y=c("Sampling.Event.ID","Point.Count..","YEAR"), all=T)
+me <- merge(me.sites, me.nightjar.obs,
+            by.x=c("Sampling.Event.UNIQUE.ID",
+                   "Point.Count..","YEAR","X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D."),
+            by.y=c("Sampling.Event.ID","Point.Count..","YEAR",
+                   "X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D."), all=T)
 
-me[is.na(me$Species),]$Species <- "NONE"
+# me[is.na(me$Species),]$Species <- "NONE" #can't do this because gives years without data a none row.
+me[!is.na(me$Bird.Survey.Date..MM.DD.YYYY) & is.na(me$Species),]$Species <- "NONE"
 
-table(me[,c("Species","YEAR")])
+table(me[,c("Species","YEAR")], useNA = "always")
 
-names(me) <- gsub(names(me), pattern="Minute", replacement="min")
+# names(me) <- gsub(names(me), pattern="Minute", replacement="min") #don't need to do this now since combined rows above and renames to min.1
 #Sampling.Event.UNIQUE.ID is uniquely identifying the survey date and time and route
 #Point.Count.. uniquely identifies the route and stop
-me$created_at <- paste(me$Bird.Survey.Date..MM.DD.YYYY,
+me$start_time <- paste(me$Bird.Survey.Date..MM.DD.YYYY,
                        me$Bird.Survey.start.time..in.HH.MM.24.hour.format, sep=" ")
 me <- me[,c("Point.Count..","ROUTE",
-            "created_at","Route.Longitude","Route.Latitude",
+            "start_time","Route.Longitude","Route.Latitude",
             "YEAR","Wind.Speed.Code","Sky.Condition.Code","Background.Noise.Code",
             "X..Cars",
-        "X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D..x",
+        "X1st.Sunset..A...2nd.Sunset..B...1st.Moonrise..C...or.2nd.Moonrise..D.",
             "Species","min.1","min.2","min.3","min.4","min.5","min.6")]
 me <- separate(me, col="Point.Count..", into=c("id","Route.Stop"),
                remove=T, sep="-")
-names(me) <- c("id","Route.Stop","name","created_at",
+names(me) <- c("id","Route.Stop","name","start_time",
                "Route.Longitude","Route.Latitude","year",
                "wind","sky","noise","cars","moon","species",
                "min.1","min.2","min.3","min.4","min.5","min.6")
 me$state <- "ME"
+me$Route.Stop <- as.numeric(me$Route.Stop)
 
 #add in other columns in nh
+me$created_at <- ""
 me$updated_at <- ""
 me$dir <- ""
 me$stop_des <- ""
@@ -487,6 +512,7 @@ de$cars <- ""
 de$year <- 2023
 de$name <- "Milford Neck"
 de$state <- "DE"
+de$start_time <- "06/04/2023 21:34"
 
 de$species <- toupper(de$species)
 
@@ -528,20 +554,27 @@ ct$min.4 <- as.numeric(ct$min.4)
 ct$min.5 <- as.numeric(ct$min.5)
 ct$min.6 <- as.numeric(ct$min.6)
 
-#remove intervals 7-10
+#remove intervals 7-10 for now
 ct <- ct[,!names(ct) %in% c("min.7","min.8","min.9","min.10")]
 
 #combine all non-nsn state data together
-non.nsn.master <- rbind(nh, ny[,names(nh)], vt[,names(nh)], me[,names(nh)], de[,names(nh)])
-non.nsn.master$TotalDetections <-
-  rowSums(non.nsn.master[,grep(names(non.nsn.master),
-                               pattern="min.")])
-suppressWarnings(non.nsn.master$MaxDetections <- 
-  apply(non.nsn.master[,grep(names(non.nsn.master), pattern="min.")],
-        1, function(x) max(x, na.rm=T)))
+columns <- c(names(nh), "start_time")
+non.nsn.master <- bind_rows(nh, ny[,names(nh)], vt[,names(nh)])
+  non.nsn.master$noise <- as.integer(non.nsn.master$noise) #match classes
+non.nsn.master <- bind_rows(non.nsn.master, me[,columns], de[,columns]) #these contain "start_time"
+
+non.nsn.master$TotalDetections <- rowSums(non.nsn.master[,grep(names(non.nsn.master), pattern="min.")])
+suppressWarnings(non.nsn.master$MaxDetections <- apply(non.nsn.master[,grep(names(non.nsn.master), pattern="min.")],
+                                                       1, function(x) max(x, na.rm=T)))
 non.nsn.master[non.nsn.master$MaxDetections == "-Inf",]$MaxDetections <- NA
 non.nsn.master$Route.Stop <- as.numeric(non.nsn.master$Route.Stop)
 non.nsn.master <- bind_rows(non.nsn.master, ct)
+
+#separate out month, day, and time
+non.nsn.master <- separate(non.nsn.master, col=start_time, into=c("start_date","start_hour"), sep=" ", remove=F)
+non.nsn.master <- separate(non.nsn.master, col=start_date, into=c("start_month","start_day","start_year"), sep="/", remove=F) #can ignore warnings
+
+
 
 #only run once
 write.table(non.nsn.master,

@@ -1,5 +1,5 @@
 ---
-title: "6_nsn_occupancymodels_2023-07-13"
+title: "xx_nsn_dynamicoccupancymodels_2023-07-13"
 author: "Marie I. Tosa"
 date: "`r Sys.Date()`"
 output: pdf_document
@@ -127,40 +127,70 @@ state <- colext(psiformula= ~state, ~1, ~1, pformula= ~year, data=umf)
 ```
 
 
-## run stacked single-season occupancy model
+## create umf for stacked single-season occupancy model
 ```{r, echo=T}
+# ####
+# sp.1 <- sp.matrix[,1:6]
+# sp.2 <- sp.matrix[,7:12]
+# sp.3 <- sp.matrix[,13:18]
+# sp.4 <- sp.matrix[,19:24]
+# sp.5 <- sp.matrix[,25:30]
+# sp.6 <- sp.matrix[,31:36]
+# sp.7 <- sp.matrix[,37:42]
+# sp.8 <- sp.matrix[,43:48]
+# sp.9 <- sp.matrix[,49:54]
+# sp.10 <- sp.matrix[,55:60]
+# sp.11 <- sp.matrix[,61:66]
+# sp.12 <- sp.matrix[,67:72]
+# sp.13 <- sp.matrix[,73:78]
+# sp.14 <- sp.matrix[,79:84]
+# sp.15 <- sp.matrix[,85:90]
+# sp.16 <- sp.matrix[,91:96]
+# 
+# sp.stacked <- rbind(sp.1, sp.2, sp.3, sp.4, sp.5, sp.6, sp.7, sp.8, sp.9, sp.10, sp.11, sp.12, sp.13, sp.14, sp.15, sp.16)
+# min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6)
+# site.stacked <- rbind(sitedata,sitedata,sitedata,sitedata,sitedata,
+#                       sitedata,sitedata,sitedata,sitedata,sitedata,
+#                       sitedata,sitedata,sitedata,sitedata,sitedata,
+#                       sitedata)
+# site.stacked$year <- as.factor(rep(2007:2022, each=nrow(sp.matrix)))
+######
 
-sp.1 <- sp.matrix[,1:6]
-sp.2 <- sp.matrix[,7:12]
-sp.3 <- sp.matrix[,13:18]
-sp.4 <- sp.matrix[,19:24]
-sp.5 <- sp.matrix[,25:30]
-sp.6 <- sp.matrix[,31:36]
-sp.7 <- sp.matrix[,37:42]
-sp.8 <- sp.matrix[,43:48]
-sp.9 <- sp.matrix[,49:54]
-sp.10 <- sp.matrix[,55:60]
-sp.11 <- sp.matrix[,61:66]
-sp.12 <- sp.matrix[,67:72]
-sp.13 <- sp.matrix[,73:78]
-sp.14 <- sp.matrix[,79:84]
-sp.15 <- sp.matrix[,85:90]
-sp.16 <- sp.matrix[,91:96]
+ewpw.data <- read.csv("../Data_processed/occupancy_detectionhistory_stacked_EWPW.csv")
+cwwi.data <- read.csv("../Data_processed/occupancy_detectionhistory_stacked_CWWI.csv")
+coni.data <- read.csv("../Data_processed/occupancy_detectionhistory_stacked_CONI.csv")
 
-sp.stacked <- rbind(sp.1, sp.2, sp.3, sp.4, sp.5, sp.6, sp.7, sp.8, sp.9, sp.10, sp.11, sp.12, sp.13, sp.14, sp.15, sp.16)
-min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6)
-site.stacked <- rbind(sitedata,sitedata,sitedata,sitedata,sitedata,
-                      sitedata,sitedata,sitedata,sitedata,sitedata,
-                      sitedata,sitedata,sitedata,sitedata,sitedata,
-                      sitedata)
-site.stacked$year <- as.factor(rep(2007:2022, each=nrow(sp.matrix)))
+#select data here
+data <- ewpw.data
+# data <- cwwi.data
+# data <- coni.data
 
+data <- data[order(data$state, data$year),]
+
+#start with only data with all covariates
+data <- data[!is.na(data$start_date_j),] #remove 11,351 rows ewpw
+data <- data[!is.na(data$sky),] #remove 169 rows
+data$noise <- as.numeric(data$noise)
+data$moon <- as.numeric(data$moon)
+
+data <- data[!is.na(data$moon),] #remove 1300 rows
+data <- data[!is.na(data$noise),] #remove 3 rows
+
+sp.stacked <- data[,grep(names(data), pattern="min")]
+sp.stacked[sp.stacked > 1 & !is.na(sp.stacked)] <- 1 #convert > 1 to 1 (presence/absence instead of counts)
+
+#check detection histories
+unique(sp.stacked)
+
+site.stacked <- data[,!names(data) %in% grep(names(data), pattern="min", value=T)] #siteCovs
+
+min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6) #add obsCovs
 
 umf <- unmarkedFrameOccu(y=sp.stacked, siteCovs=site.stacked, obsCovs=list(min=min.df))
 head(umf)
 
 # tiff(filename="../Figures/occupancy/dethist_nsn_EWPW_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
-plot(umf)
+# plot(umf)
 # dev.off()
 
 summary(umf)
@@ -169,9 +199,31 @@ summary(umf)
 #run stacked single season occupancy models
 ```{r, echo=T}
 null <- occu(~1 ~1, data=umf)
-p.year.min <- occu(~year + scale(min) ~1 + (1|state.rt), data=umf)
+summary(null)
+plogis(0.48) #detection ewpw
+plogis(-1.57) #occupancy ewpw
+
+#####
+#detection models
+#####
+p
+p.year.min <- occu(~year + scale(min) ~1 + (1|state.rt), data=umf) #detection, then psi
 
 p.year.min.o.state.year <- occu(~year + scale(min) ~state + year + (1|state.rt), data=umf)
+
+modSel()
+
+#####
+#occupancy models
+#####
+
+
+
+#####
+#detection + occupancy models
+#####
+
+
 ```
 
 

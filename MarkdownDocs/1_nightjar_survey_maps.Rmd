@@ -96,7 +96,7 @@ af.nsn$species <- af.nsn$code
 af.nsn[is.na(af.nsn$species),]$species <- "NONE"
 af.nsn.sf <- st_as_sf(af.nsn[!is.na(af.nsn$Latitude),],
                       coords=c("Latitude","Longitude"),
-                      crs=projection(AF_states))
+                      crs=4269)
 
 nrow(af.nsn)    #28,129 rows
 nrow(af.nsn.sf) #16,203 rows
@@ -105,7 +105,7 @@ nrow(af.nsn.sf) #16,203 rows
 nrow(master.nonnsn)                                        #3,818 rows, now 4,730 rows
 nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #3,398 rows, now 4,559 rows
 
-nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=projection(AF_states))
+nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=4269)
 
 #combine nsn and non-nsn survey data
 nsn.locs <- af.nsn[,c("Latitude","Longitude","start_year","route_id.char","state")]
@@ -118,7 +118,7 @@ nonnsn.locs <- master.nonnsn[,c("Route.Longitude","Route.Latitude","year","id","
 all.locs <- rbind(nsn.locs, nonnsn.locs)
 all.locs.sf <- st_as_sf(all.locs[!is.na(all.locs$Longitude),], 
                         coords=c("Longitude","Latitude"),
-                        crs=projection(AF_states))
+                        crs=4269)
 
 table(all.locs[,c("state","year")])
 

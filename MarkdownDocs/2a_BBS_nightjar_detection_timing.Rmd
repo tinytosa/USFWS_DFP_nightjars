@@ -40,12 +40,15 @@ rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
   rt$BCR <- factor(rt$BCR)
   
   rt$ct.st.rt <- paste(rt$CountryNum, rt$StateNum, rt$Route, sep="-")
+  
+  rt <- merge(rt, st.key[,c("StateNum","StateAbb")], by="StateNum", all.x=T)
+  rt <- rt[rt$StateAbb %in% AF_states$ST,]
 
 rt.sf <- st_as_sf(rt, coords=c("Longitude","Latitude"), crs=projection(AF_states))
 
 bbs.obs <- read.table(file="../Data_raw/BBS_nightjar_obs_50stopdata.txt",
                       sep=",", header=T) #all data from BCRs in AF
-  bbs.obs <- bbs.obs[bbs.obs$CountryNum == 840 & bbs.obs$StateNum %in% rt$StateNum,]
+  bbs.obs <- bbs.obs[bbs.obs$CountryNum == 840 & bbs.obs$StateNum %in% unique(rt$StateNum),]
   
 bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
                        crs=projection(AF_states))
@@ -53,6 +56,7 @@ bbs.obs.sf <- st_as_sf(bbs.obs, coords=c("Longitude","Latitude"),
 bbs.weather <- read.csv(file="../Data_raw/BBS_2022/weather.csv")
   bbs.weather <- bbs.weather[bbs.weather$CountryNum == 840 & 
                                bbs.weather$StateNum %in% rt$StateNum,]
+  bbs.weather$jday <- as.POSIXlt(paste(bbs.weather$Month, bbs.weather$Day, bbs.weather$Year, sep="-"), format="%m-%d-%Y", tz="GMT")$yday
   #link to bbs.obs by RouteDataID
 ```
 #examine time data to species detections
@@ -62,12 +66,14 @@ bbs.weather <- read.csv(file="../Data_raw/BBS_2022/weather.csv")
 #sum all stop values
 bbs.obs$StopTotal <- rowSums(bbs.obs[,grep(names(bbs.obs), pattern="Stop")])
 
+#need to do this with each species
 bbs <- merge(bbs.weather, bbs.obs,
              by=c("RouteDataID","CountryNum","StateNum","Route","Year","RPID"), all.x=T)
 bbs$ct.st.rt <- paste(bbs$CountryNum, bbs$StateNum, bbs$Route, sep="-")
 
 #add location information to NA lat long
-bbs <- merge(bbs, rt, by=c("ct.st.rt","CountryNum","StateNum","Route"), all.x=T) #"RouteName","Active","Stratum","BCR","RouteTypeID","RouteTypeDetailID"
+bbs <- merge(bbs[!names(bbs) %in% c("RouteName","Active","Latitude","Longitude","Stratum", "BCR","RouteTypeID","RouteTypeDetailID")],
+             rt, by=c("ct.st.rt","CountryNum","StateNum","Route"), all.x=T) #"RouteName","Active","Stratum","BCR","RouteTypeID","RouteTypeDetailID"
 
 bbs[is.na(bbs$StopTotal),]$StopTotal <- 0
 
@@ -78,12 +84,78 @@ bbs$detected <- factor(bbs$detected)
 
 ```{r}
 ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4200,]) + 
-  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
 
 ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4160,]) + 
-  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
 
 ggplot(data=bbs[is.na(bbs$AOU) | bbs$AOU %in% 4171,]) + 
-  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw() + theme(panel.grid=element_blank())
+  geom_histogram(aes(x=StartTime, fill=detected, group=detected), position=position_dodge()) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
 
+```
+
+
+## Create separate detection history files for each species
+
+```{r}
+#ewpw 4171
+#cwwi 4160
+#coni 4200
+
+ewpw.obs <- bbs.obs[bbs.obs$AOU == 4171,]
+cwwi.obs <- bbs.obs[bbs.obs$AOU == 4160,]
+coni.obs <- bbs.obs[bbs.obs$AOU == 4200,]
+
+o <- "ewpw.obs"
+
+for(o in c("ewpw.obs","cwwi.obs","coni.obs"))
+{
+  obs <- eval(parse(text=o))
+  all <- merge(bbs.weather, obs,
+               by=c("RouteDataID","CountryNum","StateNum","Route","Year","RPID"), all.x=T)
+  all$ct.st.rt <- paste(all$CountryNum, all$StateNum, all$Route, sep="-")
+  
+  #add location information to NA lat long and routes with no detections of sp
+  all <- merge(all[!names(all) %in% c("RouteName","Active","Latitude","Longitude","Stratum", "BCR","RouteTypeID","RouteTypeDetailID","StateAbb")],
+             rt, by=c("ct.st.rt","CountryNum","StateNum","Route"), all.x=T)
+  
+  all[is.na(all$code),]$code <- "NONE"
+  
+  #split all into ones missing 0s and complete records. rbind after fill in with 0s
+  all.missing <- all[is.na(all$StopTotal),]
+  all.missing[is.na(all.missing)] <- 0
+  
+  all.complete <- all[!is.na(all$StopTotal),]
+  print(nrow(all.complete))
+  
+  all <- rbind(all.complete, all.missing) #combine missing and complete again
+  
+  all$TempScale <- toupper(all$TempScale) #add temp scale to ones missing temp scale
+  all[all$TempScale == "NULL" & all$StartTemp > 30 & all$StartTemp != "NULL",]$TempScale <- "F"
+  all[all$TempScale == " " & all$StartTemp > 30,]$TempScale <- "F"
+  all[all$TempScale == " ",]$TempScale <- "NULL"
+  
+  all$StartTemp <- as.numeric(all$StartTemp) #fix incorrect temp scales
+  all[all$StartTemp > 30 & all$TempScale %in% "C",]$TempScale <- "F"
+  
+  all$ct.st.rt <- paste(all$CountryNum, all$StateNum, all$Route, sep="-")
+  
+  #convert C to F
+  all$StartTemp.F <- all$StartTemp
+  all[all$TempScale == "C",]$StartTemp.F <- as.numeric(all[all$TempScale == "C",]$StartTemp) * 9/5 + 32
+  all$EndTemp.F <- all$EndTemp
+  all[all$TempScale == "C",]$EndTemp.F <- as.numeric(all[all$TempScale == "C",]$EndTemp) * 9/5 + 32
+  
+  all[!is.na(all$StartTemp.F) & all$StartTemp.F == 0,]$StartTemp.F <- NA #remove if 0
+  
+  print(nrow(all)) #number of rows matches for all species
+  
+  sp <- gsub(o, pattern=".obs", replacement="")
+  assign(sp, value=all)
+  write.table(all, file=paste("../Data_processed/BBS_2022/BBS_", sp, ".txt", sep=""), sep=",", row.names=F)
+}
+
+#1188 EWPW
+#2793 CWWI
+#1631 CONI
 ```

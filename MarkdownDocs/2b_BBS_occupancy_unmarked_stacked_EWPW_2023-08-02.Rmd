@@ -1,0 +1,395 @@
+---
+title: "2b_BBS_stacked_single-season occupancy_EWPW"
+author: "Marie I. Tosa"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#load packages
+
+require(unmarked)
+require(plyr)
+require(dplyr)
+require(tidyr)
+require(chron) #for times function
+
+require(ggplot2)
+require(ggpubr)
+```
+
+
+## Create functions to plot figures
+```{r}
+vals.coefs <- function(mod)
+{
+coefs <- coef(mod) %>% tibble::enframe() #extract coefficients for covariates
+se <- SE(mod) %>% tibble::enframe() #extract SEs for covariates
+
+ci.psi <- confint(mod, type="state") %>% tibble::enframe()
+ci.det <- confint(mod, type="det") %>% tibble::enframe()
+ci <- rbind(ci.psi, ci.det) #combine psi and det CIs
+ci <- data.frame(name=ci$name, lower=ci$value[,1], upper=ci$value[,2]) #need to split up ci so can read as data frame with lower and upper bounds
+
+coefs <- merge(coefs, se, by="name") #merge coefficient values and ses
+coefs <- merge(coefs, ci) #merge coefs with CIs
+coefs <- data.frame(coefs)
+names(coefs) <- c("par", "est", "se", "lower","upper")
+
+coefs$p <- gsub(substr(coefs$par, 0,3), pattern="p\\([A-z]", replacement="det")
+coefs$name <- gsub(coefs$par, pattern="scale\\(", replacement="")
+coefs$name <- gsub(coefs$name, pattern="p\\(", replacement="")
+coefs$name <- gsub(coefs$name, pattern="psi\\(", replacement="")
+coefs$name <- gsub(coefs$name, pattern="\\)\\)", replacement="")
+coefs$name <- gsub(coefs$name, pattern="Int\\)", replacement="Int")
+coefs$name <- gsub(coefs$name, pattern="\\)", replacement="")
+coefs$name <- gsub(coefs$name, pattern="I\\(", replacement="")
+return(coefs)
+}
+
+ylabel <- data.frame(type=c("det","state"), label=c("detection","occupancy"))
+plot.marginal <- function(sp, mod, par, par.name, type)
+{
+  nd.og <- nd.mean[,names(nd.mean) != par] %>% slice(rep(1:n(), times=1000))
+  nd <- data.frame(nd.og,
+                   par=seq(min(site.stacked[,par]), max(site.stacked[,par]), length.out=1000))
+  names(nd) <- gsub(names(nd), pattern="par", replacement=par)
+  
+  marginal <- predict(mod, type=type, newdata=nd)
+  
+  nd$StartTime <- times(nd$StartTime) #convert start time back to character
+  
+  o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
+    geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") +
+    geom_rug(data=site.stacked, aes(x=site.stacked[,par], y=0)) +
+    ylim(0,1) +
+    xlab(par.name) + ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +
+    geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  print(o)
+  ggsave(o, filename=paste("../Figures/occupancy_BBS/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+  return(o)
+}
+
+```
+
+## load data
+Created detection history data files for each species in 2a_BBS_nightjar_detection_timing.Rmd
+
+```{r}
+sp <- "ewpw"
+
+data <- read.table(paste("../Data_processed/BBS_2022/BBS_", sp, ".txt", sep=""), sep=",", header=T)
+summary(data)
+
+table(data$Year)
+table(data$Month)
+table(data[,c("Year","StopTotal")])
+
+#fix start time
+data[data$StartTime == 0,]$StartTime <- NA
+data$StartTime <- times(paste(substr(data$StartTime, 0,1), ":", substr(data$StartTime, 2,3), ":00", sep=""))
+
+data$StartTemp.F <- as.numeric(data$StartTemp.F)
+data$EndTemp.F <- as.numeric(data$EndTemp.F)
+
+#remove rows with incomplete data
+data <- data[!is.na(data$StartTemp.F),]
+# data <- data[!is.na(data$EndTemp.F),] #not using this
+
+data <- data[!is.na(data$StartTime),]
+
+
+#remove years before 1997 since hardly any detections then
+data <- data[data$Year >= 1997,]
+
+#####
+#transformations
+data$StartTime2 <- scale(data$StartTime)^2
+data$jday2 <- scale(data$jday)^2
+
+#correct class
+data$StateAbb <- factor(data$StateAbb)
+data$Month <- factor(data$Month)
+
+data$BCR <- factor(data$BCR)
+
+```
+
+## create umf for stacked single-season occupancy model
+```{r}
+sp.stacked <- data[,grep(names(data), pattern="Stop[0-9]")]
+sp.stacked[sp.stacked > 1 & !is.na(sp.stacked)] <- 1 #convert > 1 to 1 (presence/absence instead of counts)
+
+#check detection histories
+unique(sp.stacked)
+
+colSums(sp.stacked) #can we cut off detections anywhere? aka reduce the number of stops
+plot(colSums(sp.stacked), cex=2, col="black", pch=20)
+
+sp.stacked <- sp.stacked[,1:10] #only take the first 10 stops since others are surveys mid-day
+
+######
+#siteCovs
+site.stacked <- data[,!names(data) %in% grep(names(data), pattern="Stop", value=T)] #siteCovs
+
+#add in transformations for variables, if any
+#
+#
+
+######
+#obsCovs
+stop.df <- matrix(rep(1:length(names(sp.stacked)), times=nrow(sp.stacked)), byrow=T, ncol=length(names(sp.stacked))) #add obsCovs, dimensions the same as y data
+
+umf <- unmarkedFrameOccu(y=sp.stacked, siteCovs=site.stacked, obsCovs=list(stop=stop.df))
+head(umf)
+
+# tiff(filename=paste("../Figures/occupancy_BBS/",sp,"dethist_BBS_stacked.tiff", sep=""), height=10, width=8, units="in", compression="lzw", res=400)
+# plot(umf)
+# dev.off()
+
+plot(umf)
+summary(umf)
+
+1660/(1660 + 161710) #detected during 1.02% of the surveys
+```
+
+
+## run detection models for stacked single season occupancy models
+16351 sites
+Maximum number of observations per site: 10 
+Mean number of observations per site: 10 
+Sites with at least one detection: 1174 
+
+Tabulation of y observations:
+     0      1 
+161850   1660 
+
+```{r}
+Sys.time()
+null <- occu(~1 ~1, data=umf)
+null.r <- occu(~(1|ct.st.rt) ~1, data=umf) #+ (1|StateAbb)
+
+#obsCov
+p.stop <- occu(~stop + (1|ct.st.rt) ~1, data=umf)
+
+#siteCov
+p.stemp <- occu(~scale(StartTemp.F) + (1|ct.st.rt) ~1, data=umf)
+# p.etemp <- occu(~EndTemp.F + (1|ct.st.rt) ~1, data=umf)
+
+p.month <- occu(~Month + (1|ct.st.rt) ~1, data=umf)
+p.jday <- occu(~scale(jday) + (1|ct.st.rt) ~1, data=umf)
+p.jday2 <- occu(~scale(jday) + jday2 + (1|ct.st.rt) ~1, data=umf)
+
+p.wind <- occu(~scale(StartWind) + (1|ct.st.rt) ~1, data=umf)
+p.sky <- occu(~scale(StartSky) + (1|ct.st.rt) ~1, data=umf)
+
+p.time <- occu(~StartTime + (1|ct.st.rt) ~1, data=umf)
+p.time2 <- occu(~StartTime + I(StartTime*StartTime) + (1|ct.st.rt) ~1, data=umf)
+Sys.time()
+
+#model
+p.fl <- fitList(null, null.r,
+                p.stop, #per minute within a survey
+                p.stemp, #p.etemp, 
+                p.month, p.jday, p.jday2,
+                p.wind, p.sky, #site covariates
+                p.time, p.time2) #timing
+modSel(p.fl)
+#         nPars      AIC   delta AICwt cumltvWt
+# p.stop      3 11030.45    0.00  1.00     1.00
+# p.time      3 15067.84 4037.39  0.00     1.00
+# p.time2     4 15069.38 4038.92  0.00     1.00
+# p.month     4 15075.74 4045.28  0.00     1.00
+# p.stemp     3 15093.89 4063.44  0.00     1.00
+# p.wind      3 15110.35 4079.90  0.00     1.00
+
+# null.r      2 15113.18 4082.73  0.00     1.00
+# p.sky       3 15114.95 4084.50  0.00     1.00
+# null        2 18884.26 7853.81  0.00     1.00
+
+p.global <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) +
+                   (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
+
+```
+
+## coefficients and marginal plots for detection variables
+```{r}
+#these look kind of weird because need to set random effect variables
+plotEffects(p.stop, "det", "stop")
+plotEffects(p.stemp, "det", "StartTemp.F")
+plotEffects(p.etemp, "det", "EndTemp.F")
+plotEffects(p.wind, "det", "StartWind")
+plotEffects(p.sky, "det", "StartSky")
+plotEffects(p.month, "det", "Month")
+plotEffects(p.time, "det", "StartTime")
+plotEffects(p.time2, "det", "StartTime")
+
+p.coefs <- vals.coefs(p.global) #choose model to extract coefficients from
+
+c.plot <- ggplot(data=p.coefs[!p.coefs$name %in% "Int",], aes(x=name, y=est, group=p, shape=p)) +
+  # c.plot <- ggplot(data=coefs[coefs$name != "INT",], aes(x=name, y=est)) +
+  geom_point(size=3, position=position_dodge(width=0.5)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.5)) +
+  # geom_errorbar(aes(ymin=est-se, ymax=est+se), width=0, lwd=1, position=position_dodge(width=0.5)) +
+  geom_hline(aes(yintercept=0), lty="dotted") +
+  xlab("parameter") + ylab("estimate") +
+  coord_flip() +
+  theme_bw(base_size=16) + theme(panel.grid=element_blank()) + facet_wrap(.~p, scales="free", ncol=1)
+c.plot
+
+ggsave(c.plot, filename="../Figures/occupancy_BBS/EWPW_stacked_occupancy_det_coefficients.tiff", height=6, width=6, units="in", dpi=400, compression="lzw")
+
+# ###########
+# #manually plot marginals in ggplot2
+nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
+nd.mean <- nd.mean[100,] #only take one row since all rows are the same (which row matters, since random effect by route and state)
+nd.mean$stop <- 1
+
+#
+#plot these with p.global2, need to pull out scale() from within I() to plot these
+plot.marginal(sp="EWPW", p.global, "StartTemp.F", "start temperature (F)", type="det")
+plot.marginal(sp="EWPW", p.global, "StartWind", "wind", type="det")
+
+#Start time is a little weird since using chron package
+Sys.setenv(TZ='GMT')
+
+type <- "det"
+st.time <- plot.marginal(sp="EWPW", p.global, "StartTime", "Start Time", type="det")
+  st.time + scale_x_chron(format="%H:%M", n=10)
+  ggsave(filename=paste("../Figures/occupancy_BBS/", toupper(sp), "_stacked_occupancy_",type,"_", "StartTime",".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+  
+
+#for stop
+mod <- p.global; par <- "stop"; par.name <- "stop number"; type <- "det"
+nd.og <- nd.mean[,names(nd.mean) != par] %>% slice(rep(1:n(), times=10))
+nd <- data.frame(nd.og, par=1:10)
+names(nd) <- gsub(names(nd), pattern="par", replacement=par)
+marginal <- unmarked::predict(mod, type=type, newdata=nd)
+o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
+  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") +
+  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +ylim(0,1) +
+  xlab(par.name) + scale_x_continuous(breaks=1:10) +
+  geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+print(o)
+ggsave(o, filename=paste("../Figures/occupancy_BBS/EWPW_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+
+
+```
+
+
+## run occupancy models for stacked single season occupancy models
+```{r}
+
+null <- occu(~1 ~1, data=umf)
+null.r <- occu(~1 ~(1|ct.st.rt), data=umf)
+
+o.state <- occu(~1 ~ StateAbb + (1|ct.st.rt), data=umf)
+o.bcr <- occu(~1 ~ BCR + (1|ct.st.rt), data=umf)
+o.lat <- occu(~1 ~ Latitude + (1|ct.st.rt), data=umf)
+
+o.year <- occu(~1 ~ Year + (1|ct.st.rt), data=umf)
+o.year.f <- occu(~1 ~ factor(Year) + (1|ct.st.rt), data=umf)
+
+o.fl <- fitList(null, null.r,
+                o.state, o.bcr, o.lat,
+                o.year, o.year.f)
+modSel(o.fl)
+
+#          nPars      AIC   delta   AICwt cumltvWt
+# o.year       3 14698.63    0.00 1.0e+00     1.00
+# o.state     18 15092.69  394.07 2.7e-86     1.00
+# o.bcr        3 15145.68  447.06 8.4e-98     1.00
+# null.r       2 15153.35  454.73 1.8e-99     1.00
+# o.lat        3 18787.06 4088.44 0.0e+00     1.00
+# null         2 18884.26 4185.63 0.0e+00     1.00
+# o.year.f    56 24059.02 9360.40 0.0e+00     1.00
+
+o.year.state <- occu(~1 ~ Year + StateAbb + (1|ct.st.rt), data=umf)
+o.year.bcr <- occu(~1 ~ Year + BCR + (1|ct.st.rt), data=umf)
+o.year.state.bcr <- occu(~1 ~ Year + StateAbb + BCR + (1|ct.st.rt), data=umf)
+
+```
+
+## coefficients and marginal plots for occupancy variables
+```{r}
+
+nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
+nd.mean <- nd.mean[100,] #only take one row since all rows are the same (which row matters, since random effect by route and state)
+nd.mean$stop <- 1
+
+#continuous variables
+plot.marginal(sp="EWPW", o.year, "Year", "Year", type="state")
+plot.marginal(sp="EWPW", o.lat, "Latitude", "Latitude", type="state")
+
+#categorical variables
+plotEffects(o.state, "StateAbb", type="state")
+plotEffects(o.bcr, "BCR", type="state")
+
+# plotEffects(o.year.f, "Year", type="state") #doesn't run
+
+
+######
+#plot values for each state
+######
+mod <- o.state
+nd <- unique(site.stacked[,c("StateAbb","BCR","Year","ct.st.rt")])
+nd <- nd %>% #take first row of each group
+  group_by(StateAbb) %>%
+  arrange(ct.st.rt) %>%
+  filter(row_number()==1)
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+m.data <- m.data[order(m.data$Year, m.data$StateAbb),]
+m.data$StateAbb <- factor(m.data$StateAbb, levels=rev(c("FL","GA","SC","NC","VA","WV","MD","DE","NJ","PA","NY","CT","RI","MA","VT","NH","ME")))
+
+ggplot(m.data, aes(x=StateAbb, y=Predicted)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.25)) +
+  geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
+  xlab("state") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+ggsave(filename="../Figures/occupancy_BBS/EWPW_stacked_occupancy_psi_state.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
+
+
+#######
+#plot values for each BCR
+#######
+mod <- o.bcr
+nd <- unique(site.stacked[,c("StateAbb","BCR","Year","ct.st.rt")])
+nd <- nd %>% #take first row of each group
+  group_by(BCR) %>%
+  arrange(ct.st.rt) %>%
+  filter(row_number()==1)
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+m.data <- m.data[order(m.data$Year, m.data$StateAbb),]
+m.data$StateAbb <- factor(m.data$StateAbb, levels=rev(c("FL","GA","SC","NC","VA","WV","MD","DE","NJ","PA","NY","CT","RI","MA","VT","NH","ME")))
+m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+
+ggplot(m.data, aes(x=BCR, y=Predicted)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.25)) +
+  geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
+  xlab("BCR") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+ggsave(filename="../Figures/occupancy_BBS/EWPW_stacked_occupancy_psi_BCR.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
+
+
+```
+
+## run det + occ models
+```{r}
+
+p.global <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) +
+                   (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
+p.global.o.year <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) + (1|ct.st.rt) + (1|StateAbb) 
+                   ~ Year + (1|ct.st.rt), data=umf)
+# p.global.o.bcr <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) + (1|ct.st.rt) + (1|StateAbb) 
+#                    ~ BCR + (1|ct.st.rt), data=umf) #get NaNs with this
+p.global.o.state <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) + (1|ct.st.rt) + (1|StateAbb) 
+                   ~ StateAbb + (1|ct.st.rt), data=umf)
+
+
+
+```

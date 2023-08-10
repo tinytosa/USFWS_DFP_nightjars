@@ -1,5 +1,5 @@
 ---
-title: "6_nightjar surveys_single-season occupancy_stacked years"
+title: "6_nightjar surveys_single-season occupancy_stacked years_CONI"
 author: "Marie I. Tosa"
 date: "`r Sys.Date()`"
 output: pdf_document
@@ -45,6 +45,23 @@ coefs$name <- gsub(coefs$name, pattern="I\\(", replacement="")
 return(coefs)
 }
 
+plot.marginal <- function(sp, mod, par, par.name, type)
+{
+  nd <- data.frame(nd.mean[,names(nd.mean) != par],
+                   par=seq(min(site.stacked[,par]), max(site.stacked[,par]), length.out=1000))
+  names(nd) <- gsub(names(nd), pattern="par", replacement=par)
+  marginal <- unmarked::predict(mod, type=type, newdata=nd)
+
+  o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
+    geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") +
+    geom_rug(data=site.stacked, aes(x=site.stacked[,par], y=0)) +
+    ylim(0,1) +
+    xlab(par.name) + ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +
+    geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  print(o)
+  ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+}
+
 ```
 
 ## load data
@@ -58,12 +75,19 @@ cwwi.data <- read.csv("../Data_processed/occupancy_detectionhistory_stacked_CWWI
 coni.data <- read.csv("../Data_processed/occupancy_detectionhistory_stacked_CONI.csv")
 
 #select data here
-data <- ewpw.data
+# data <- ewpw.data
 # data <- cwwi.data
-# data <- coni.data
+data <- coni.data
+sp <- "CONI"
 
-#remove 2023 data since only from DE
-data <- data[data$year != 2023,]
+# fix moon data
+# ME: 1st Sunset (A), 2nd Sunset (B), 1st Moonrise (C), or 2nd Moonrise (D): this is more about start_time
+data$moon <- toupper(data$moon)
+data$moon <- trimws(data$moon)
+data[data$moon %in% c("A","B","C","D"),]$moon <- NA
+data[data$moon %in% c("Y"),]$moon <- 1
+data[data$moon %in% c("N"),]$moon <- 0
+data[data$moon %in% c(""),]$moon <- NA
 
 #remove rows where there is no detection information
 data <- data[!is.na(data$MaxDetections),]
@@ -75,37 +99,43 @@ data <- data[order(data$state, data$year),]
 #start with only data with all covariates (remove rows with NA in siteCovs)
 summary(data)
 
-# data <- data[!is.na(data$start_date_j),] #removes most of NH sites since they don't have month/day or start_time info
-
-data$noise <- as.numeric(data$noise)
-data$moon <- as.numeric(data$moon)
-
-# data <- data[!is.na(data$sky),]
-data <- data[!is.na(data$moon),]
-data <- data[!is.na(data$noise),]
-
-#fix classes for data
-data$hour <- as.factor(data$hour)
-
-nrow(data) #20,493 rows
-summary(data)
-
-sum(data$TotalDetections) #this should match number of 1s in the summary of the umf
-
-plot(data$hour, data$TotalDetections)
-plot(data$hour, data$MaxDetections)
 
 #####
+#for detection only models and global models
+# data <- data[!is.na(data$sky),]
+# data <- data[!is.na(data$moon),]
+# data <- data[!is.na(data$noise),]
+# 
+# data <- data[!is.na(data$start_date_j),] #removes most of NH sites since they don't have month/day or start_time info
+# data <- data[!data$start_month %in% c(9, 10, 11),]
+
+#####
+#for occupancy only models and global models
 #remove data without BCR information
 data <- data[!is.na(data$BCR),] #remove sites without BCR info
 data <- data[!is.na(data$year),] #remove sites without year info
 
+data <- data[!is.na(data$Route.Latitude),] #try this to see if latitude is a better predictor
+data <- data[!is.na(data$Route.Longitude),]
+
+#remove 2023 data since only from DE
+data <- data[data$year != 2023,]
+
+#fix classes for data
+data$noise <- as.numeric(data$noise)
+data$moon <- factor(data$moon)
+
+data$hour <- factor(data$hour)
+data$start_month <- factor(data$start_month)
 data$BCR <- factor(data$BCR)
 data$year <- factor(data$year)
 
+######
+plot(data$hour, data$TotalDetections)
+plot(data$hour, data$MaxDetections)
 table(data$state)
 
-nrow(data) #EWPW: 20,493 rows for detection models, 19,737 rows for occupancy models
+nrow(data) #CWWI: 16,561 rows for detection models, 19,737 rows for occupancy models
 summary(data)
 
 sum(data$TotalDetections) #this should match number of 1s in the summary of the umf
@@ -131,50 +161,37 @@ min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6) #add obsCovs
 umf <- unmarkedFrameOccu(y=sp.stacked, siteCovs=site.stacked, obsCovs=list(min=min.df))
 head(umf)
 
-# tiff(filename="../Figures/occupancy/dethist_nsn_EWPW_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
-plot(umf)
+# tiff(filename="../Figures/occupancy/CONI_dethist_nsn_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
+# plot(umf)
 # dev.off()
 
+plot(umf)
 summary(umf)
 
-#y=1/y=0
-# 20794/(58592 + 20794) #only 26.2% of occasions where EWPW were detected (with all NA data removed) #for the detection only model
-16702/(16702 + 96897) #only 14.7% of occasions where EWPW were detected #for the occupancy only model
+#y=1/(y=0 + y=1)
+2286/(74718 + 2286) #only 3.0% of occasions where CWWI were detected (with all NA data removed) for the detection only model
+2371/(65508 + 2371) #only 3.5% of occasions where CWWI were detected for the occupancy only model
 
 ```
 
 ## run detection models for stacked single season occupancy models
 include random effect of route and state
+
+12786 sites
+Maximum number of observations per site: 6 
+Mean number of observations per site: 6 
+Sites with at least one detection: 777 
+
+Tabulation of y observations:
+    0     1 
+74433  2283
 ```{r, echo=T}
 null <- occu(~1 ~1, data=umf)
 null.r <- occu(~(1|st_id) + (1|state) ~1, data=umf)
-summary(null)
+summary(null.r)
 
-# Call:
-# occu(formula = ~(1 | st_id) + (1 | state) ~ 1, data = umf)
-# 
-# Occupancy (logit-scale):
-#  Estimate     SE     z P(>|z|)
-#    -0.169 0.0197 -8.57   1e-17
-# 
-# Detection (logit-scale):
-# Random effects:
-#  Groups        Name Variance Std.Dev.
-#   st_id (Intercept)   13.501    3.674
-#   state (Intercept)    6.646    2.578
-# 
-# Fixed effects:
-#  Estimate    SE     z  P(>|z|)
-#     -3.86 0.915 -4.22 2.46e-05
-# 
-# AIC: 58024.25 
-# Number of sites: 20493
-# optim convergence code: 0
-# optim iterations: 49 
-# Bootstrap iterations: 0
-
-plogis(-3.86) #detection -> 2% detection
-plogis(-0.169) #occupancy -> 45.8% occupancy
+plogis(-5.8) #detection -> 0.3% detection
+plogis(-1.44)  #occupancy -> 19.2% occupancy
 
 #####
 #detection models
@@ -182,84 +199,58 @@ plogis(-0.169) #occupancy -> 45.8% occupancy
 p.min <- occu(~scale(min) + (1|st_id) + (1|state) ~1, data=umf)
 
 #
-p.moon <- occu(~scale(moon) + (1|st_id) + (1|state) ~1, data=umf)
+p.moon <- occu(~moon + (1|st_id) + (1|state) ~1, data=umf)
 p.sky <- occu(~scale(sky) + (1|st_id) + (1|state) ~1, data=umf)
 p.noise <- occu(~scale(noise) + (1|st_id) + (1|state) ~1, data=umf)
 
 p.day <- occu(~scale(start_date_j) + (1|st_id) + (1|state) ~1, data=umf)
 p.day2 <- occu(~scale(start_date_j) + I(scale(start_date_j) * scale(start_date_j)) + 
                  (1|st_id) + (1|state) ~1, data=umf)
-p.month <- occu(~scale(start_month) + (1|st_id) + (1|state) ~1, data=umf)
-p.month2 <- occu(~scale(start_month) + I(scale(start_month)*scale(start_month)) + 
-                   (1|st_id) + (1|state) ~1, data=umf)
+p.month <- occu(~start_month + (1|st_id) + (1|state) ~1, data=umf)
+# p.month2 <- occu(~scale(start_month) + I(scale(start_month)*scale(start_month)) + 
+                   # (1|st_id) + (1|state) ~1, data=umf)
 p.hour <- occu(~hour + (1|st_id) + (1|state) ~1, data=umf)
 p.time <- occu(~scale(start_time_s) + (1|st_id) + (1|state) ~1, data=umf)
+p.time2 <- occu(~scale(start_time_s) + I(scale(start_time_s)*scale(start_time_s)) + (1|st_id) + (1|state) ~1, data=umf)
 
 p.timecat <- occu(~start_time_cat + (1|st_id) + (1|state) ~1, data=umf)
 
-p.global <- occu(~scale(min) + scale(noise) + 
-                   scale(start_date_j) + I(scale(start_date_j)*scale(start_date_j)) +
-                   scale(moon) + scale(sky) +
-                   (1|st_id) + (1|state) ~1, data=umf)
-
-# p.month2 <- occu(~scale(start_month) + I(scale(start_month)*scale(start_month))+ state + (1|st_id) ~1, data=umf) #change state from random to fixed effect, eats up a lot of parameters
-
+####
 p.fl <- fitList(null, null.r, p.min, #per minute within a survey
                 p.moon, p.sky, p.noise, #site covariates
-                p.day, p.day2, p.month, p.month2, p.time, p.timecat, p.hour, #timing of survey
-                p.global) 
+                p.day, p.day2, p.month, p.time, p.time2, p.timecat, p.hour) #, #timing of survey p.month2, 
+                # p.global) 
 modSel(p.fl)
-#           nPars      AIC   delta   AICwt cumltvWt
-# p.global      8 50493.43    0.00 1.0e+00     1.00
-# p.min         3 50733.71  240.28 6.6e-53     1.00
-# p.noise       3 50747.75  254.32 6.0e-56     1.00
-# p.day2        4 50808.50  315.07 3.8e-69     1.00
-# p.month2      4 50843.70  350.27 8.7e-77     1.00 #correlated with day2
-# p.day         3 50845.06  351.64 4.4e-77     1.00
-# p.hour       20 50855.07  361.64 3.0e-79     1.00
-# p.moon        3 50855.48  362.06 2.4e-79     1.00
-# p.month       3 50867.46  374.03 6.0e-82     1.00
-# p.timecat     5 50873.79  380.36 2.5e-83     1.00
-# p.sky         3 50883.17  389.75 2.3e-85     1.00
+#           nPars      AIC   delta    AICwt cumltvWt
+# p.hour       19 10950.23    0.00  1.0e+00     1.00 #too many categories when factor
+# p.timecat     5 11025.66   75.44  4.2e-17     1.00
+# p.day2        4 11026.26   76.03  3.1e-17     1.00
+# p.noise       3 11030.32   80.09  4.1e-18     1.00
+# p.time2       4 11033.42   83.20  8.6e-19     1.00 #
+# p.month       5 11034.94   84.71  4.0e-19     1.00 #
+# p.moon        3 11035.39   85.16  3.2e-19     1.00
+# p.time        3 11038.21   87.98  7.9e-20     1.00 #
 
-# null.r        2 50883.86  390.43 1.7e-85     1.00
-# p.time        3 50888.46  395.03 1.7e-86     1.00
-# null          2 59172.12 8678.69 0.0e+00     1.00
+# null.r        2 11038.70   88.47  6.1e-20     1.00
+# p.day         3 11039.64   89.41  3.8e-20     1.00
+# p.min         3 11039.86   89.63  3.4e-20     1.00
+# p.sky         3 11040.53   90.30  2.5e-20     1.00
+# null          2 12293.68 1343.46 1.9e-292     1.00
+
+p.global <- occu(~start_time_cat + scale(noise) + scale(start_date_j) + start_date_j2 + moon +
+                   (1|st_id) + (1|state) ~1, data=umf)
+p.global2 <- occu(~start_time_cat + scale(noise) + scale(start_date_j) + I(scale(start_date_j) * scale(start_date_j)) + moon +
+                   (1|st_id) + (1|state) ~1, data=umf)
+
 ```
 ## coefficients and marginal plots for detection variables
 include random effect of route and state
 ```{r, echo=T}
-
-p.global2 <- occu(~scale(min) + scale(noise) + 
-                    scale(start_date_j) + start_date_j2 + 
-                    scale(moon) + scale(sky) + (1|st_id) + (1|state) ~1, data=umf)
-
 # mod <- p.global #choose model to extract coefficients from
-mod <- p.global2
 
-coefs <- coef(mod) %>% tibble::enframe() #extract coefficients for covariates
-se <- SE(mod) %>% tibble::enframe() #extract SEs for covariates
+p.coefs <- vals.coefs(p.global)
 
-ci.psi <- confint(mod, type="state") %>% tibble::enframe()
-ci.det <- confint(mod, type="det") %>% tibble::enframe()
-ci <- rbind(ci.psi, ci.det) #combine psi and det CIs
-ci <- data.frame(name=ci$name, lower=ci$value[,1], upper=ci$value[,2]) #need to split up ci so can read as data frame with lower and upper bounds
-
-coefs <- merge(coefs, se, by="name") #merge coefficient values and ses
-coefs <- merge(coefs, ci) #merge coefs with CIs
-coefs <- data.frame(coefs)
-names(coefs) <- c("par", "est", "se", "lower","upper")
-
-coefs$p <- gsub(substr(coefs$par, 0,3), pattern="p\\([A-z]", replacement="det")
-coefs$name <- gsub(coefs$par, pattern="scale\\(", replacement="")
-coefs$name <- gsub(coefs$name, pattern="p\\(", replacement="")
-coefs$name <- gsub(coefs$name, pattern="psi\\(", replacement="")
-coefs$name <- gsub(coefs$name, pattern="\\)\\)", replacement="")
-coefs$name <- gsub(coefs$name, pattern="Int\\)", replacement="Int")
-coefs$name <- gsub(coefs$name, pattern="\\)", replacement="")
-coefs$name <- gsub(coefs$name, pattern="I\\(", replacement="")
-
-c.plot <- ggplot(data=coefs[!coefs$name %in% "Int",], aes(x=name, y=est, group=p, shape=p)) +
+c.plot <- ggplot(data=p.coefs[!p.coefs$name %in% "Int",], aes(x=name, y=est, group=p, shape=p)) +
   # c.plot <- ggplot(data=coefs[coefs$name != "INT",], aes(x=name, y=est)) +
   geom_point(size=3, position=position_dodge(width=0.5)) + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.5)) +
@@ -270,7 +261,7 @@ c.plot <- ggplot(data=coefs[!coefs$name %in% "Int",], aes(x=name, y=est, group=p
   theme_bw(base_size=16) + theme(panel.grid=element_blank()) + facet_wrap(.~p, scales="free", ncol=1)
 c.plot
 
-ggsave(c.plot, filename="../Figures/occupancy/stacked_occupancy_det_coefficients.tiff")
+ggsave(c.plot, filename="../Figures/occupancy/CONI_stacked_occupancy_det_coefficients.tiff")
 
 ###########
 #univariate model marginal plots
@@ -285,71 +276,69 @@ plotEffects(p.hour, "det", covariate="hour")
 ###########
 # #global model marginal plots for each covariate
 
-mod <- p.global2
-
-# plotEffects(mod, "det", covariate="start_date_j")
-# 
-# #not sure why these don't work...problem seems to be using I(date^2) notation
-plotEffects(mod, "det", covariate="min")
-plotEffects(mod, "det", covariate="noise")
-plotEffects(mod, "det", covariate="moon")
-plotEffects(mod, "det", covariate="sky")
+############
+#plot with base R functions
+# #problem seems to be using I(date^2) notation
+plotEffects(p.global, "det", covariate="start_date_j") #switched to start_date_j2
+plotEffects(p.global, "det", covariate="min")
+plotEffects(p.global, "det", covariate="noise")
 # 
 # ###########
 # #manually plot marginals in ggplot2
 nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
-nd.mean <- nd.mean[1,] #only take first row since all rows are the same
+nd.mean <- nd.mean[200,] #only take one row since all rows have the same numeric values (but st_id matters)
 nd.mean$min <- 1
 
 ylabel <- data.frame(type=c("det","state"), label=c("detection","occupancy"))
 #
-plot.marginal <- function(par, par.name, type)
-{
-  nd <- data.frame(nd.mean[,names(nd.mean) != par],
-                   par=seq(min(site.stacked[,par]), max(site.stacked[,par]), length.out=1000))
-  names(nd) <- gsub(names(nd), pattern="par", replacement=par)
-  marginal <- unmarked::predict(mod, type=type, newdata=nd)
-
-  o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
-    geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") +
-    geom_rug(data=site.stacked, aes(x=site.stacked[,par], y=0)) +
-    ylim(0,1) +
-    xlab(par.name) + ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +
-    geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
-  print(o)
-  ggsave(o, filename=paste("../Figures/occupancy/stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
-}
-
 #plot these with p.global2, need to pull out scale() from within I() to plot these
-plot.marginal("noise", "noise", type="det")
-plot.marginal("moon", "moon", type="det")
-plot.marginal("sky", "sky", type="det")
+plot.marginal(sp="CONI", p.global, "noise", "noise", type="det")
+plot.marginal(sp="CONI", p.global2, "start_date_j", "Julian day", type="det") #need to plot separately with p.global2 since have scale within I()
 
-# plot.marginal("start_date_j", "start_date_j", type="det") #need to plot separately with p.global since have scale within I()
-
-#for min
-par <- "min"; par.name <- "minute"; type <- "det"
-nd <- data.frame(nd.mean[,names(nd.mean) != par], par=1:6)
+#plot separately for categorical and obsCovs
+#for categorical
+sp <- "CONI"; par <- "start_time_cat"; par.name <- "start time"; type <- "det"
+nd <- data.frame(nd.mean[,names(nd.mean) != par], par=c("day","dawn","night","dusk"))
 names(nd) <- gsub(names(nd), pattern="par", replacement=par)
-marginal <- unmarked::predict(mod, type=type, newdata=nd)
+marginal <- predict(p.global, type=type, newdata=nd)
 o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
-  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") +
-  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +ylim(0,1) +
-  xlab(par.name) + scale_x_continuous(breaks=1:6) +
-  geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  # geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") + geom_line() + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.5, lwd=1) + geom_point(size=3) +
+  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) + #ylim(0,1) +
+  xlab(par.name) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
 print(o)
-ggsave(o, filename=paste("../Figures/occupancy/stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+
+#moon
+sp <- "CONI"; par <- "moon"; par.name <- "moon visible"; type <- "det"
+nd <- data.frame(nd.mean[,names(nd.mean) != par], par=c("0","1"))
+names(nd) <- gsub(names(nd), pattern="par", replacement=par)
+marginal <- predict(p.global, type=type, newdata=nd)
+o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
+  # geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") + geom_line() + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.5, lwd=1) + geom_point(size=3) +
+  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) + #ylim(0,1) +
+  xlab(par.name) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+print(o)
+ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+
 
 ```
 
 ## run occupancy models for stacked single season occupancy models
 include random effect of route on occupancy, included state as a fixed effect
+removed sites without BCR information
 
-removed sites without BCR information (19737 sites)
+11315 sites
+Maximum number of observations per site: 6 
+Mean number of observations per site: 6 
+Sites with at least one detection: 810 
+
 Tabulation of y observations:
-      0      1   <NA> 
- 101666  16702     54
-
+    0     1  <NA> 
+65508  2371    11 
 ```{r, echo=T}
 #####
 #occupancy models
@@ -359,46 +348,60 @@ null <- occu(~1 ~ (1|st_id), data=umf)
 
 #univariate
 o.state <- occu(~1 ~ state + (1|st_id), data=umf)
-o.bcr <- occu(~1 ~ BCR + (1|st_id), data=umf) #removing this so can run models with more sites and BCR does not increase fit by much
+o.bcr <- occu(~1 ~ BCR + (1|st_id), data=umf) 
 o.year <- occu(~1 ~ year + (1|st_id), data=umf)
 
-#covariate combinations
-o.state.bcr <- occu(~1 ~ state + BCR + (1|st_id), data=umf)
-o.state.year <- occu(~1 ~ state + year + (1|st_id), data=umf)
+o.lat <- occu(~1 ~ scale(Route.Latitude) + (1|st_id), data=umf)
+o.lat2 <- occu(~1 ~ scale(Route.Latitude) + I(scale(Route.Latitude)* scale(Route.Latitude)) + (1|st_id), data=umf)
 
-o.state.bcr.year <- occu(~1 ~ state + BCR + year + (1|st_id), data=umf)
+o.long <- occu(~1 ~ scale(Route.Longitude) + (1|st_id), data=umf)
+o.long2 <- occu(~1 ~ scale(Route.Longitude) + I(scale(Route.Longitude)* scale(Route.Longitude)) + (1|st_id), data=umf)
 
-o.fl <- fitList(null,
-                o.bcr, o.state.bcr,
-                o.state, o.year, 
-                o.state.year, o.state.bcr.year
-                )
+#univariate model table
+o.fl <- fitList(o.lat, o.lat2, o.long, o.long2)
 modSel(o.fl)
-#                  nPars      AIC  delta   AICwt cumltvWt
-# o.state.bcr.year    34 42927.45   0.00 7.9e-01     0.79
-# o.state.bcr         19 42930.04   2.59 2.1e-01     1.00
-# o.state.year        28 42980.62  53.18 2.2e-12     1.00
-# o.state             13 42981.71  54.26 1.3e-12     1.00
-# o.bcr                8 42992.34  64.89 6.4e-15     1.00
-# null                 2 43215.66 288.21 2.0e-63     1.00
-# o.year              17 43216.38 288.94 1.4e-63     1.00
+#         nPars      AIC delta   AICwt cumltvWt
+# o.lat2      4 11066.37  0.00 1.0e+00     1.00
+# o.long2     4 11121.81 55.43 9.2e-13     1.00
+# o.lat       3 11128.80 62.42 2.8e-14     1.00
+# o.long      3 11141.59 75.22 4.6e-17     1.00
+
+o.fl <- fitList(null, o.bcr, o.state, o.year,
+                o.lat, o.lat2, o.long, o.long2)
+modSel(o.fl)
+#         nPars      AIC  delta   AICwt cumltvWt
+# o.state    11 11032.45   0.00 1.0e+00     1.00
+# o.bcr       8 11076.90  44.46 2.2e-10     1.00
+# o.year     17 11120.98  88.53 6.0e-20     1.00
+# null        2 11139.61 107.16 5.4e-24     1.00
+
+#         nPars      AIC  delta   AICwt cumltvWt
+# o.state    11 11032.45   0.00 1.0e+00     1.00
+# o.lat2      4 11066.37  33.93 4.3e-08     1.00
+# o.bcr       8 11076.90  44.46 2.2e-10     1.00
+# o.year     17 11120.98  88.53 6.0e-20     1.00
+# o.long2     4 11121.81  89.36 3.9e-20     1.00
+# o.lat       3 11128.80  96.35 1.2e-21     1.00
+
+# null        2 11139.61 107.16 5.4e-24     1.00
+# o.long      3 11141.59 109.15 2.0e-24     1.00
+
+o.state.year <- occu(~1 ~ state + year + (1|st_id), data=umf)
+o.bcr.year <- occu(~1 ~ BCR + year + (1|st_id), data=umf)
+
+# o.state.bcr.year <- occu(~1 ~ state + BCR + year + (1|st_id), data=umf) #can't do this
 
 ```
 
 ## plot occupancy only model figures
 ```{r}
-# plotEffects(o.state, "state", covariate="state")
-# plotEffects(o.bcr, "state", covariate="BCR")
-# 
-# plotEffects(o.state.year, "state", covariate="state")
-# plotEffects(o.state.year, "state", covariate="year")
-# 
-# plotEffects(o.state.year, "state", covariate="state")
-# plotEffects(o.state.year, "state", covariate="year")
+plotEffects(o.lat2, "state", covariate="Route.Latitude")
+plotEffects(o.long2, "state", covariate="Route.Longitude")
 
-plotEffects(o.state.bcr.year, "state", covariate="year")
-plotEffects(o.state.bcr.year, "state", covariate="state")
-plotEffects(o.state.bcr.year, "state", covariate="BCR")
+plotEffects(o.state, "state", covariate="state")
+plotEffects(o.bcr, "state", covariate="BCR")
+# plotEffects(o.year, "state", covariate="year") #this is silly
+# 
 
 ####
 #plot occupancy per state per BCR per year
@@ -407,12 +410,23 @@ plotEffects(o.state.bcr.year, "state", covariate="BCR")
 #                  year=rep(unique(data$year), each=length(unique(data$state))),
 #                  st_id="GA--270056") #have to provide this for predict to work
 
-mod <- o.state.bcr.year
-nd <- unique(site.stacked[,c("state","BCR","year","st_id")])
+mod <- o.state.year
+
+#this isn't quite right since could be using different routes each year
+# nd <- unique(site.stacked[,c("state","BCR","year","st_id")])
+# nd <- nd %>% #take first row of each group
+#   group_by(state, BCR, year) %>%
+#   arrange(st_id) %>%
+#   filter(row_number()==1)
+
+nd <- unique(site.stacked[,c("state","BCR","st_id")])
 nd <- nd %>% #take first row of each group
-  group_by(state, BCR, year) %>%
+  group_by(state, BCR) %>%
   arrange(st_id) %>%
   filter(row_number()==1)
+
+u.year <- unique(site.stacked[,c("state","BCR","year")])
+nd <- merge(nd, u.year, by=c("state","BCR"), all=T)
 
 marginal <- predict(mod, type="state", newdata=nd)
 
@@ -429,14 +443,15 @@ p <- ggplot(m.data, aes(x=year, y=Predicted, col=BCR, fill=BCR)) +
   xlab("state") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
   theme_bw(base_size=20) + theme(panel.grid=element_blank())
 p + facet_wrap(~state, ncol=1)
-ggsave(filename = "../Figures/occupancy/stacked_occupancy_psi_state-bcr-year.tiff", height=30, width=16, units="in", dpi=400, compression="lzw")
+ggsave(filename = "../Figures/occupancy/CONI_stacked_occupancy_psi_state-bcr-year.tiff", height=30, width=16, units="in", dpi=400, compression="lzw")
 
 p + facet_wrap(~state, ncol=2, dir="v")
-ggsave(filename = "../Figures/occupancy/stacked_occupancy_psi_state-bcr-year2.tiff", height=20, width=20, units="in", dpi=400, compression="lzw")
+ggsave(filename = "../Figures/occupancy/CONI_stacked_occupancy_psi_state-bcr-year2.tiff", height=20, width=20, units="in", dpi=400, compression="lzw")
 
 ######
 #plot values for each state
 ######
+mod <- o.state
 nd <- unique(site.stacked[,c("state","BCR","year","st_id")])
 nd <- nd %>% #take first row of each group
   group_by(state) %>%
@@ -453,11 +468,12 @@ ggplot(m.data, aes(x=state, y=Predicted)) +
   geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
   xlab("state") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
   theme_bw(base_size=20) + theme(panel.grid=element_blank())
-ggsave(filename="../Figures/occupancy/stacked_occ_psi_state_EWPW.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
+ggsave(filename="../Figures/occupancy/CONI_stacked_occ_psi_state.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
 
 #######
 #plot values for each BCR
 #######
+mod <- o.bcr
 nd <- unique(site.stacked[,c("state","BCR","year","st_id")])
 nd <- nd %>% #take first row of each group
   group_by(BCR) %>%
@@ -475,7 +491,7 @@ ggplot(m.data, aes(x=BCR, y=Predicted)) +
   geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
   xlab("BCR") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
   theme_bw(base_size=20) + theme(panel.grid=element_blank())
-ggsave(filename="../Figures/occupancy/stacked_occ_psi_BCR_EWPW.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
+ggsave(filename="../Figures/occupancy/CONI_stacked_occ_psi_BCR.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
 
 #can't really plot values for each year since each state was only samples sporadically
 
@@ -504,14 +520,7 @@ ggsave(filename="../Figures/occupancy/stacked_occ_psi_BCR_EWPW.tiff", height=6, 
 include random effect of route and state on detection
 include random effect of route on occupancy
 
-7493 sites
-Maximum number of observations per site: 6 
-Mean number of observations per site: 6 
-Sites with at least one detection: 2359 
 
-Tabulation of y observations:
-    0     1 
-35833  9125
 
 *this is a much smaller dataset since need covariate info and BCR info*
 
@@ -529,7 +538,7 @@ p.global <- occu(~scale(min) + scale(noise) +
 o.global <- occu(~1 ~ state + BCR + year + (1|st_id), data=umf)
 
 global <- occu(~scale(min) + scale(noise) + 
-                   scale(start_date_j) + start_date_j2 +
+                   scale(start_date_j) + I(scale(start_date_j)*scale(start_date_j)) +
                    scale(moon) + #scale(sky) + #remove since almost no effect
                    (1|st_id) + (1|state)
                ~state + BCR + year + (1|st_id), data=umf)
@@ -537,20 +546,18 @@ global <- occu(~scale(min) + scale(noise) +
 fl <- fitList(null, null.r,
                 p.global, o.global, global)
 modSel(fl)
-
-#          nPars      AIC   delta    AICwt cumltvWt
-# global      32 21560.77    0.00  1.0e+00     1.00
-# null.r       2 21795.48  234.71  1.1e-51     1.00
-# o.global    27 22023.46  462.69 3.4e-101     1.00
-# p.global     7 23171.22 1610.44  0.0e+00     1.00
-# null         2 27748.45 6187.68  0.0e+00     1.00
 ```
 
 
 ## plot marginals for stacked single season occupancy models
 ```{r, echo=T}
 
-plotEffects(o.state.bcr.year, "state", covariate="year")
-plotEffects(o.state.bcr.year, "state", covariate="state")
-plotEffects(o.state.bcr.year, "state", covariate="BCR")
+
+# plotEffects(p.month2, "det", covariate="state")
+# plotEffects(p.month2, "det", covariate="start_month")
+
+
+# plotEffects(p.year.min.o.state.year, "state", covariate="state")
+# plotEffects(p.year.min.o.state.year, "state", covariate="year")
+
 ```

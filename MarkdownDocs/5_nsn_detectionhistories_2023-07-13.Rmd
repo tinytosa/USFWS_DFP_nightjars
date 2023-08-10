@@ -445,6 +445,8 @@ cwwi1 <- cwwi %>% filter(species %in% c("CWWI")) #10,296 rows #all ewpw rows
 nrow(cwwi1)
 # cwwi2 <- cwwi %>% filter(!species %in% c("CWWI")) %>% mutate_at(vars(matches("min")), ~0) #17,967 rows #all rows with other species
 cwwi2 <- cwwi %>% filter(!species %in% c("CWWI")) %>% mutate_at(vars(matches("min")), ~ifelse(is.na(.), NA, 0))
+
+cwwi2 <- cwwi2[cwwi2$state != "CT",] #need to remove CT routes from CWWI since not surveyed
 nrow(cwwi2)
 cwwi2$species <- "CWWI"
 cwwi2 <- cwwi2[!duplicated(cwwi2),] #remove duplicates
@@ -470,7 +472,8 @@ nrow(coni1)
 # coni2 <- coni %>% filter(!species %in% c("CONI")) %>% mutate_at(vars(matches("min")), ~0) #26,866 rows #all rows with other species
 coni2 <- coni %>% filter(!species %in% c("CONI")) %>% mutate_at(vars(matches("min")), ~ifelse(is.na(.), NA, 0)) #replace values of all other species with 0 if not NA
 nrow(coni2)
-coni2$species <- "CWWI"
+coni2$species <- "CONI"
+coni2 <- coni2[coni2$state != "CT",] #need to remove CT sites since CT only surveyed for EWPW
 coni2 <- coni2[!duplicated(coni2),] #remove duplicates
 
 coni <- rbind(coni1, coni2)

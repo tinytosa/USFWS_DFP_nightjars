@@ -104,7 +104,9 @@ data <- data[data$Year >= 1997,]
 
 #####
 data$StateAbb <- factor(data$StateAbb)
+data$BCR <- factor(data$BCR)
 data$Month <- factor(data$Month)
+data$Year <- factor(data$Year)
 
 #MA 6/9/1991 temp is 11-19 F?
 #ME 6/21/1993 temp is 17-17F?
@@ -120,7 +122,10 @@ sp.stacked[sp.stacked > 1 & !is.na(sp.stacked)] <- 1 #convert > 1 to 1 (presence
 unique(sp.stacked)
 
 colSums(sp.stacked) #can we cut off detections anywhere? aka reduce the number of stops
-plot(colSums(sp.stacked), cex=2, col="black", pch=20)
+ggplot(data=data.frame(colSums(sp.stacked)), aes(x=1:50, y=colSums.sp.stacked.)) + geom_point(size=3) + 
+  geom_hline(aes(yintercept=0), col="grey75", lty="dashed") +
+  ylab("Num. detections") + xlab("stop") + theme_bw(base_size=20) + theme(panel.grid = element_blank())
+ggsave(filename = "../Figures/occupancy_BBS/CONI_detectionsbystop.tiff", height=3, width=9, units="in", dpi=400, compression="lzw")
 
 sp.stacked <- sp.stacked[,1:10] #only take the first 10 stops since others are surveys mid-day
 
@@ -134,6 +139,8 @@ site.stacked <- data[,!names(data) %in% grep(names(data), pattern="Stop", value=
 site.stacked$StartTime2 <- scale(site.stacked$StartTime)^2
 site.stacked$jday2 <- scale(site.stacked$jday)^2
 
+site.stacked$Latitude2 <- scale(site.stacked$Latitude)^2
+site.stacked$Longitude2 <- scale(site.stacked$Longitude)^2
 
 ######
 #obsCovs
@@ -297,7 +304,7 @@ ggsave(o, filename=paste("../Figures/occupancy_BBS/CONI_stacked_occupancy_",type
 
 ## run occupancy models for stacked single season occupancy models
 ```{r}
-
+Sys.time()
 o.null <- occu(~1 ~(1|ct.st.rt), data=umf) #+ (1|StateAbb)
 
 o.state <- occu(~1 ~ StateAbb + (1|ct.st.rt), data=umf)
@@ -309,20 +316,162 @@ o.lat2 <- occu(~1 ~ scale(Latitude) + I(scale(Latitude)* scale(Latitude)) + (1|c
 
 o.long <- occu(~1 ~ scale(Longitude) + (1|ct.st.rt), data=umf)
 o.long2 <- occu(~1 ~ scale(Longitude) + I(scale(Longitude)* scale(Longitude)) + (1|ct.st.rt), data=umf)
+Sys.time()
 
 o.fl <- fitList(o.lat, o.lat2, o.long, o.long2)
 modSel(o.fl)
 
-o.fl <- fitList(null, o.bcr, o.state, o.year,
+#         nPars      AIC  delta   AICwt cumltvWt
+# o.lat2      4 20206.91   0.00 1.0e+00     1.00
+# o.lat       3 20281.72  74.82 5.7e-17     1.00
+# o.long2     4 20436.03 229.12 1.8e-50     1.00
+# o.long      3 20439.91 233.00 2.5e-51     1.00
+
+o.fl <- fitList(o.null, o.bcr, o.state, o.year,
                 o.lat, o.lat2, o.long, o.long2)
 modSel(o.fl)
+#         nPars      AIC  delta   AICwt cumltvWt
+# o.state    18 20194.51   0.00 9.9e-01     0.99 #has insane SEs
+# o.bcr       8 20203.32   8.81 1.2e-02     1.00
+# o.lat2      4 20206.91  12.40 2.0e-03     1.00
+# o.lat       3 20281.72  87.21 1.1e-19     1.00
+# o.year     25 20406.29 211.78 1.0e-46     1.00
+# o.long2     4 20436.03 241.52 3.5e-53     1.00
+# o.long      3 20439.91 245.40 5.1e-54     1.00
+# o.null      2 20463.32 268.81 4.2e-59     1.00
 
+# o.state.year <- occu(~1 ~ StateAbb + Year + (1|ct.st.rt), data=umf) #don't run. insane SEs for states
+o.bcr.year <- occu(~1 ~ BCR + Year + (1|ct.st.rt), data=umf)
+o.bcr.year.n <- occu(~1 ~ BCR + as.numeric(Year) + (1|ct.st.rt), data=umf)
 
+modSel(fitList(o.bcr.year, o.bcr.year.n, o.bcr, o.year))
+
+o.global <- occu(~1 ~ scale(Latitude) + Latitude2 + scale(Longitude) + Longitude2 + BCR + Year + (1|ct.st.rt), data=umf) #year as factor
+o.global0 <- occu(~1 ~ scale(Latitude) + Latitude2 + scale(Longitude) + Longitude2 + BCR + scale(as.numeric(Year)) + (1|ct.st.rt), data=umf) #year as numeric
+o.global1 <- occu(~1 ~ scale(Latitude) + I(scale(Latitude)^2) + scale(Longitude) + Longitude2 + BCR + scale(as.numeric(Year)) + (1|ct.st.rt), data=umf)
+o.global2 <- occu(~1 ~ scale(Latitude) + Latitude2 + scale(Longitude) + I(scale(Longitude)^2) + BCR + scale(as.numeric(Year)) + (1|ct.st.rt), data=umf)
+
+modSel(fitList(o.global, o.global0))
 
 ```
 
 ## coefficients and marginal plots for occupancy variables
 ```{r}
+
+o.coefs <- vals.coefs(o.global0) #choose model to extract coefficients from
+
+c.plot <- ggplot(data=o.coefs[!o.coefs$name %in% "Int",], aes(x=name, y=est, group=p, shape=p)) +
+  # c.plot <- ggplot(data=coefs[coefs$name != "INT",], aes(x=name, y=est)) +
+  geom_point(size=3, position=position_dodge(width=0.5)) + 
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.5)) +
+  # geom_errorbar(aes(ymin=est-se, ymax=est+se), width=0, lwd=1, position=position_dodge(width=0.5)) +
+  geom_hline(aes(yintercept=0), lty="dotted") +
+  xlab("parameter") + ylab("estimate") +
+  coord_flip() +
+  theme_bw(base_size=16) + theme(panel.grid=element_blank()) + facet_wrap(.~p, scales="free", ncol=1)
+c.plot
+ggsave(c.plot, filename="../Figures/occupancy_BBS/CONI_stacked_occupancy_psi_coefficients.tiff", height=6, width=6, units="in", dpi=400, compression="lzw")
+
+
+plotEffects(o.bcr.year.n, "state", "Year")
+
+mod <- o.global0
+
+nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
+nd.mean <- nd.mean[200,] #only take one row since all rows have the same numeric values (but st_id matters)
+
+ylabel <- data.frame(type=c("det","state"), label=c("detection","occupancy"))
+#
+#plot these with p.global2, need to pull out scale() from within I() to plot these
+plot.marginal(sp="CONI", o.global1, "Latitude", "Latitude", type="state")
+plot.marginal(sp="CONI", o.global2, "Longitude", "Longitude", type="state")
+
+#
+
+#by BCR
+require(sf)
+BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
+BCR <- BCR.ST %>% group_by(BCR) %>% summarise(AreaSqMi = sum(AreaSqMi, na.rm=T), nstates=n())
+
+nd.centroid <- st_centroid(BCR) %>% st_coordinates()
+st_id <- unique(site.stacked[,c("BCR","ct.st.rt")]) %>%
+  group_by(BCR) %>%
+  arrange(ct.st.rt) %>%
+  filter(row_number()==1)
+
+nd <- cbind(BCR[,c("BCR")] %>% st_drop_geometry, nd.centroid)
+names(nd) <- c("BCR","Longitude","Latitude")
+
+nd <- merge(nd, st_id, by=c("BCR"), all.x=T)
+
+nd$Latitude2 <- scale(nd$Latitude)^2
+nd$Longitude2 <- scale(nd$Longitude)^2
+nd$BCR <- factor(nd$BCR)
+nd$Year <- factor(2018)
+
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+
+ggplot(m.data, aes(x=BCR, y=Predicted)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.25)) +
+  geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
+  xlab("BCR") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+ggsave(filename="../Figures/occupancy_BBS/CONI_stacked_occupancy_psi_BCR.tiff", height=6, width=8, units="in", dpi=400, compression="lzw")
+
+#bcr with year
+u.year <- unique(site.stacked[,c("BCR","Year")])
+nd <- cbind(BCR[,c("BCR")] %>% st_drop_geometry, nd.centroid)
+names(nd) <- c("BCR","Longitude","Latitude")
+
+nd <- merge(nd, st_id, by=c("BCR"), all.x=T)
+
+nd$Latitude2 <- scale(nd$Latitude)^2
+nd$Longitude2 <- scale(nd$Longitude)^2
+
+nd$BCR <- factor(nd$BCR)
+
+nd <- merge(nd, u.year, by="BCR", all.x=T)
+
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+# m.data <- m.data[order(m.data$state),]
+# m.data$state <- factor(m.data$state, levels=rev(c("FL","GA","SC","NC","VA","WV","MD","DE","NJ","PA","NY","CT","MA","VT","NH","ME")))
+m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+
+ggplot(m.data, aes(x=Year, y=Predicted, col=BCR, fill=BCR, group=BCR)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  # geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.75)) +
+  # geom_point(size=3, position=position_dodge(width=0.75)) +
+  geom_ribbon(aes(ymin=lower, ymax=upper), col=NA, lwd=1, alpha=0.1) +
+  geom_line() + facet_wrap(~BCR, ncol=2) +
+  scale_color_brewer(palette="Set2") + scale_fill_brewer(palette="Set2") +
+  xlab("Year") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+ggsave(filename="../Figures/occupancy_BBS/CONI_stacked_occupancy_psi_BCR-year.tiff", height=6, width=16, units="in", dpi=400, compression="lzw")
+
+range(m.data[m.data$BCR==31,]$Predicted)
+range(m.data[m.data$BCR==27,]$Predicted)
+
+#year as numeric
+nd <- nd.mean %>% slice(rep(1:n(), times=length(1997:2021)))
+nd$Year <- factor(1997:2021)
+
+marginal <- predict(o.global0, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+
+ggplot(m.data, aes(x=Year, y=Predicted, group=BCR)) + 
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  geom_ribbon(aes(ymin=lower, ymax=upper), lwd=1, alpha=0.5, fill="grey75") +
+  geom_line() +
+  xlab("Year") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+ggsave(filename="../Figures/occupancy_BBS/CONI_stacked_occupancy_psi_year.tiff", height=6, width=16, units="in", dpi=400, compression="lzw")
+
+
 
 ```
 

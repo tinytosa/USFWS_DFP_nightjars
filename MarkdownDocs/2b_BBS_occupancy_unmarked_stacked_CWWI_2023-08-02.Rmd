@@ -103,11 +103,10 @@ data <- data[data$Year >= 1997,]
 
 
 #####
-data$StartTime2 <- scale(data$StartTime)^2
-data$jday2 <- scale(data$jday)^2
-
 data$StateAbb <- factor(data$StateAbb)
 data$Month <- factor(data$Month)
+# data$Year <- factor(data$Year)
+data$BCR <- factor(data$BCR)
 
 ```
 
@@ -120,7 +119,10 @@ sp.stacked[sp.stacked > 1 & !is.na(sp.stacked)] <- 1 #convert > 1 to 1 (presence
 unique(sp.stacked)
 
 colSums(sp.stacked) #can we cut off detections anywhere? aka reduce the number of stops
-plot(colSums(sp.stacked), cex=2, col="black", pch=20)
+ggplot(data=data.frame(colSums(sp.stacked)), aes(x=1:50, y=colSums.sp.stacked.)) + geom_point(size=3) + 
+  geom_hline(aes(yintercept=0), col="grey75", lty="dashed") +
+  ylab("Num. detections") + xlab("stop") + theme_bw(base_size=20) + theme(panel.grid = element_blank())
+ggsave(filename = "../Figures/occupancy_BBS/CWWI_detectionsbystop.tiff", height=3, width=9, units="in", dpi=400, compression="lzw")
 
 sp.stacked <- sp.stacked[,1:8] #only take the first 10 stops since others are surveys mid-day
 
@@ -131,6 +133,11 @@ site.stacked <- data[,!names(data) %in% grep(names(data), pattern="Stop", value=
 #add in transformations for variables, if any
 #
 #
+site.stacked$StartTime2 <- scale(site.stacked$StartTime)^2
+site.stacked$jday2 <- scale(site.stacked$jday)^2
+
+site.stacked$Latitude2 <- scale(site.stacked$Latitude)^2
+site.stacked$Longitude2 <- scale(site.stacked$Longitude)^2
 
 ######
 #obsCovs
@@ -149,14 +156,15 @@ summary(umf)
 
 
 ## run detection models for stacked single season occupancy models
-31975 sites
+16337 sites
 Maximum number of observations per site: 8 
 Mean number of observations per site: 8 
-Sites with at least one detection: 2765 
+Sites with at least one detection: 2751 
 
 Tabulation of y observations:
      0      1 
-250045   5755 
+124972   5724 
+
 
 ```{r}
 null <- occu(~1 ~1, data=umf)
@@ -176,9 +184,9 @@ p.jday2 <- occu(~scale(jday) + jday2 + (1|ct.st.rt) ~1, data=umf)
 p.wind <- occu(~scale(StartWind) + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
 p.sky <- occu(~scale(StartSky) + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
 
-p.time <- occu(~StartTime + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
+p.time <- occu(~scale(StartTime) + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
 # p.time2 <- occu(~StartTime + I(StartTime*StartTime) + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
-p.time2 <- occu(~StartTime + StartTime2 + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
+p.time2 <- occu(~scale(StartTime) + StartTime2 + (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
 
 #model
 p.fl <- fitList(null, null.r,
@@ -189,17 +197,22 @@ p.fl <- fitList(null, null.r,
                 p.time, p.time2) #timing
 modSel(p.fl)
 #         nPars      AIC    delta AICwt cumltvWt
-# p.stop      3 27011.24     0.00  1.00     1.00
-# p.time2     4 34044.86  7033.62  0.00     1.00
-# p.time      3 34053.55  7042.31  0.00     1.00
-# p.month     4 34066.21  7054.97  0.00     1.00
-# p.stemp     3 34218.76  7207.52  0.00     1.00
-# p.wind      3 34245.44  7234.20  0.00     1.00
-# null.r      2 34250.51  7239.27  0.00     1.00
-# p.sky       3 34250.61  7239.37  0.00     1.00
-# null        2 43564.83 16553.59  0.00     1.00
+# p.stop      3 22634.91     0.00  1.00     1.00
+# p.time2     4 29531.19  6896.28  0.00     1.00
+# p.time      3 29531.87  6896.97  0.00     1.00
+# p.stemp     3 29783.87  7148.96  0.00     1.00
 
-p.global <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + scale(StartWind) +
+# null.r      2 29842.83  7207.92  0.00     1.00
+# p.sky       3 29843.22  7208.31  0.00     1.00
+# p.wind      3 29843.95  7209.05  0.00     1.00
+# p.jday2     4 30286.13  7651.23  0.00     1.00
+# p.jday      3 30290.25  7655.35  0.00     1.00
+# p.month     4 30323.30  7688.40  0.00     1.00
+# null        2 39426.30 16791.39  0.00     1.00
+
+p.global <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + StartTime2 +
+                   (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
+p.global1 <- occu(~scale(stop) + scale(StartTemp.F) + scale(StartTime) + I(scale(StartTime)^2) +
                    (1|ct.st.rt) + (1|StateAbb) ~1, data=umf)
 
 ```
@@ -240,13 +253,13 @@ nd.mean$stop <- 1
 #
 #plot these with p.global2, need to pull out scale() from within I() to plot these
 plot.marginal(sp="CWWI", p.global, "StartTemp.F", "start temperature (F)", type="det")
-plot.marginal(sp="CWWI", p.global, "StartWind", "wind", type="det")
+# plot.marginal(sp="CWWI", p.global, "StartWind", "wind", type="det")
 
 #Start time is a little weird since using chron package
 Sys.setenv(TZ='GMT')
 
 type <- "det"
-st.time <- plot.marginal(sp="CWWI", p.global, "StartTime", "Start Time", type="det")
+st.time <- plot.marginal(sp="CWWI", p.global1, "StartTime", "Start Time", type="det")
   st.time + scale_x_chron(format="%H:%M", n=10)
   ggsave(filename=paste("../Figures/occupancy_BBS/", toupper(sp), "_stacked_occupancy_",type,"_", "StartTime",".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
 
@@ -270,11 +283,130 @@ ggsave(o, filename=paste("../Figures/occupancy_BBS/CWWI_stacked_occupancy_",type
 
 ## run occupancy models for stacked single season occupancy models
 ```{r}
+null <- occu(~1 ~1, data=umf)
+null.r <- occu(~1 ~(1|ct.st.rt), data=umf)
+
+o.state <- occu(~1 ~ StateAbb + (1|ct.st.rt), data=umf)
+o.bcr <- occu(~1 ~ BCR + (1|ct.st.rt), data=umf)
+
+o.lat <- occu(~1 ~ scale(Latitude) + (1|ct.st.rt), data=umf)
+o.lat2 <- occu(~1 ~ scale(Latitude) + I(scale(Latitude)^2) + (1|ct.st.rt), data=umf)
+o.long <- occu(~1 ~ scale(Longitude) + (1|ct.st.rt), data=umf)
+o.long2 <- occu(~1 ~ scale(Longitude) + I(scale(Longitude)^2) + (1|ct.st.rt), data=umf)
+
+o.year <- occu(~1 ~ scale(Year) + (1|ct.st.rt), data=umf)
+o.year.f <- occu(~1 ~ factor(Year) + (1|ct.st.rt), data=umf)
+
+o.fl <- fitList(null, null.r,
+                o.state, o.bcr, o.lat, o.lat2, o.long, o.long2,
+                o.year, o.year.f)
+modSel(o.fl)
+
+#          nPars      AIC   delta    AICwt cumltvWt
+# o.lat2       4 30732.77    0.00  1.0e+00     1.00
+# o.state     18 30764.69   31.92  1.2e-07     1.00 #insane SEs
+# o.bcr        8 30828.90   96.13  1.3e-21     1.00
+# o.lat        3 30829.07   96.30  1.2e-21     1.00
+# o.long2      4 31079.22  346.45  5.9e-76     1.00
+# o.long       3 31085.06  352.29  3.2e-77     1.00
+# o.year.f    25 31096.39  363.62  1.1e-79     1.00
+# o.year       3 31153.91  421.15  3.5e-92     1.00
+# null.r       2 31214.84  482.07 2.1e-105     1.00
+# null         2 39426.30 8693.53  0.0e+00     1.00
+
+o.global <- occu(~1 ~ scale(Latitude) + Latitude2 + scale(Longitude) + Longitude2 +
+                   scale(Year) + (1|ct.st.rt), data=umf)
+o.global1 <- occu(~1 ~ scale(Latitude) + I(scale(Latitude)^2) + scale(Longitude) + Longitude2 +
+                   scale(Year) + (1|ct.st.rt), data=umf)
+o.global2 <- occu(~1 ~ scale(Latitude) + Latitude2 + scale(Longitude) + I(scale(Longitude)^2) +
+                   scale(Year) + (1|ct.st.rt), data=umf)
+
 
 ```
 
 ## coefficients and marginal plots for occupancy variables
 ```{r}
+nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
+nd.mean <- nd.mean[200,] #only take one row since all rows have the same numeric values (but st_id matters)
+
+# plot.marginal(sp="CWWI", o.year, par="Year", par.name="Year", type="state")
+plot.marginal(sp="CWWI", o.global, par="Year", par.name="Year", type="state")
+
+plot.marginal(sp="CWWI", o.global1, par="Latitude", par.name="Latitude", type="state")
+plot.marginal(sp="CWWI", o.global2, par="Longitude", par.name="Longitude", type="state")
+
+
+###########
+#bcr
+# mod <- o.global
+mod <- o.bcr
+
+require(sf)
+BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
+BCR <- BCR.ST %>% group_by(BCR) %>% summarise(AreaSqMi = sum(AreaSqMi, na.rm=T), nstates=n())
+
+nd.centroid <- st_centroid(BCR) %>% st_coordinates()
+st_id <- unique(site.stacked[,c("BCR","ct.st.rt","StateAbb")]) %>%
+  group_by(BCR) %>%
+  arrange(ct.st.rt) %>%
+  filter(row_number()==1)
+
+nd <- cbind(BCR[,c("BCR")] %>% st_drop_geometry, nd.centroid)
+names(nd) <- c("BCR","Longitude","Latitude")
+
+nd <- merge(nd, st_id, by=c("BCR"), all.x=T)
+
+nd$Latitude2 <- scale(nd$Latitude)^2
+nd$Longitude2 <- scale(nd$Longitude)^2
+nd$BCR <- factor(nd$BCR)
+nd$Year <- factor(2018)
+
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+
+ggplot(m.data, aes(x=BCR, y=Predicted)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.25)) +
+  geom_point(size=5, col="black", position=position_dodge(width=0.25)) +
+  xlab("BCR") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+
+########
+#bcr with year
+u.year <- unique(site.stacked[,c("BCR","Year")])
+nd <- cbind(BCR[,c("BCR")] %>% st_drop_geometry, nd.centroid)
+names(nd) <- c("BCR","Longitude","Latitude")
+
+nd <- merge(nd, st_id, by=c("BCR"), all.x=T)
+
+nd$Latitude2 <- scale(nd$Latitude)^2
+nd$Longitude2 <- scale(nd$Longitude)^2
+
+nd$BCR <- factor(nd$BCR)
+
+nd <- merge(nd, u.year, by="BCR", all.x=T)
+
+marginal <- predict(mod, type="state", newdata=nd)
+m.data <- cbind(nd, marginal)
+# m.data <- m.data[order(m.data$state),]
+# m.data$state <- factor(m.data$state, levels=rev(c("FL","GA","SC","NC","VA","WV","MD","DE","NJ","PA","NY","CT","MA","VT","NH","ME")))
+m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+
+ggplot(m.data, aes(x=Year, y=Predicted, col=BCR, fill=BCR, group=BCR)) +
+  geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +
+  # geom_errorbar(aes(ymin=lower, ymax=upper), width=0.1, lwd=1, position=position_dodge(width=0.75)) +
+  # geom_point(size=3, position=position_dodge(width=0.75)) +
+  geom_ribbon(aes(ymin=lower, ymax=upper), col=NA, lwd=1, alpha=0.1) +
+  geom_line() + facet_wrap(~BCR, ncol=2) +
+  scale_color_brewer(palette="Set2") + scale_fill_brewer(palette="Set2") +
+  xlab("Year") + ylab(paste("Predicted probability of occupancy")) + ylim(c(0,1)) +
+  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+ggsave(filename="../Figures/occupancy_BBS/CWWI_stacked_occupancy_psi_BCR-year.tiff", height=6, width=16, units="in", dpi=400, compression="lzw")
+
+range(m.data[m.data$BCR==31,]$Predicted)
+range(m.data[m.data$BCR==27,]$Predicted)
+
 
 ```
 

@@ -10,6 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #load packages
 require(plyr)
+require(tidyr)
+require(units)
 
 #for GIS
 require(sf)
@@ -171,6 +173,7 @@ routes.sf <- st_as_sf(routes[!is.na(routes$Latitude),], coords=c("Longitude","La
 #calculate distance between points
 dist.routes <- st_distance(random.sf, routes.sf, by_element=F)
 units(dist.routes) <- make_units(mi) #convert units from m to mi
+# units(dist.routes) <- as_units(quote(mi)) #convert units from m to mi
 #rows = random.sf, columns=routes.sf
 
 #convert from wide to long
@@ -178,11 +181,12 @@ dist.routes <- data.frame(dist.routes)
 names(dist.routes) <- routes[!is.na(routes$Latitude),]$st.route.stop #label columns
 dist.routes <- cbind(dist.routes, random.routes[,c("route_name","selected")]) #label rows
 
-dist.long <- pivot_longer(dist.routes, values_to="dist", cols='FL_0001..1':'CT_NB86..11')
+dist.long <- pivot_longer(dist.routes, values_to="dist", cols='FL_0001..1':'CT_WH85..9')  # CT_NB86..11
 dist.long <- separate(dist.long, col="name", into=c("st_route","stop"), remove=F, sep="[.][.]")
 
 ### change this as necessary ###
 distance.threshold <- set_units(20, mi)
+###
 
 to_combine <- dist.long[dist.long$dist < distance.threshold,]
 to_combine <- to_combine[order(to_combine$stop),]
@@ -199,6 +203,8 @@ to_combine <- merge(to_combine,
 # X and Y = coordinates of random.routes
 # Longitude and Latitude = coordinates of current NSN routes
 
+
+###########
 #how many random.routes already have existing routes that could be used
 sum.r <- ddply(to_combine, .(route_name, selected, ST, BCR),
                summarize, num.existing=length(name)) #summarized by random.route
@@ -211,7 +217,7 @@ summary.need.have <- merge(need.r, sum.bcr.st, by=c("ST","BCR","selected"), all.
 summary.need.have[is.na(summary.need.have)] <- 0
 summary.need.have$num.remaining <- summary.need.have$num.random.need - summary.need.have$num.random.routes
 
-# write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F)
+# write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F) #this isn't quite right since includes routes from a different state
 
 # to_combine$selected <- factor(to_combine$selected)
 # random.sf$selected <- factor(random.sf$selected)
@@ -223,21 +229,54 @@ random.sf$alternate <- 1-random.sf$selected
 to_combine$alternate <- factor(to_combine$alternate)
 random.sf$alternate <- factor(random.sf$alternate)
 
+#############
+#create tables for each state with existing routes and random routes that need to be created
+#############
+names(to_combine) <- c("existing_rt_stop","random_route_name","selected","existing_route","stop","distance",
+                       "X.random","Y.random","state.random","BCR.random","Longitude.existing","Latitude.existing","alternate")
+to_combine <- separate(to_combine, col="existing_route", into=c("state.existing","existing_route_name"), sep="_", remove=F)
+to_combine <- to_combine[to_combine$state.random == to_combine$state.existing,] #make sure existing and random routes are in the same state
+
+#if existing route listed multiple times, remove the one that is further away
+to_combine <- to_combine[order(to_combine$existing_route, to_combine$distance),]
+to_combine <- to_combine[!duplicated(to_combine$existing_route),]
+
+state_table <- merge(to_combine[,c("existing_rt_stop","existing_route","existing_route_name","state.existing","stop",
+                                   "Longitude.existing","Latitude.existing",
+                                   "distance","random_route_name","selected")], 
+                     random.routes, by.x=c("random_route_name","selected"), by.y=c("route_name","selected"), all.y=T)
+state_table <- state_table[order(state_table$ST, state_table$BCR, state_table$selected),]
+
+names(state_table) <- c("random_route_name","selected","existing_rt_stop","existing_route","existing_route_name","state.existing","stop",
+                        "Longitude.existing","Latitude.existing","distance","X.random","Y.random","ST","BCR")
+
+write.csv(state_table[,c("random_route_name","selected","existing_route","Longitude.existing","Latitude.existing","distance","X.random","Y.random","ST","BCR")], file="../Data_processed/table_for_states.csv", row.names=F)
+
+########
+s1 <- ddply(state_table, .(random_route_name, ST, BCR, selected), 
+            summarize, num.existing=sum(!is.na(existing_route)), num.na=sum(is.na(existing_route)))
+s2 <- ddply(s1, .(ST, BCR, selected), summarize, num.exist=sum(num.existing != 0), num.need=sum(num.na), num.total=length(num.existing))
+
+write.csv(s2, file="../Data_processed/table_for_states_summary.csv", row.names=F)
+
+#############
+#plot maps
+#############
 for(st in unique(AF_states$ST))
 {
   print(st)
   #create sf objects from to_combine
   # random.st.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("X","Y"), crs=crs(BCR.ST))
-  existing.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("Longitude","Latitude"), crs=crs(BCR.ST))
+  existing.sf <- st_as_sf(to_combine[to_combine$state.random == st,], coords=c("Longitude.existing","Latitude.existing"), crs=crs(BCR.ST))
   # all.random.sf <- random.sf[random.sf$ST == st &
   #                              !random.sf$route_name %in% random.st.sf$route_name,]
 
   
-  random.st.sf <- st_as_sf(to_combine, coords=c("X","Y"), crs=crs(BCR.ST))
+  random.st.sf <- st_as_sf(to_combine, coords=c("X.random","Y.random"), crs=crs(BCR.ST))
   # existing.sf <- st_as_sf(to_combine, coords=c("Longitude","Latitude"), crs=crs(BCR))
 
   all.random.sf <- random.sf[random.sf$ST == st &
-                               !random.sf$route_name %in% to_combine[to_combine$ST == st,]$route_name,]
+                               !random.sf$route_name %in% to_combine[to_combine$state.random == st,]$random_route_name,]
   
   #plot
   ex <- extent(AF_states[AF_states$ST == st,])
@@ -256,25 +295,26 @@ for(st in unique(AF_states$ST))
     # geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=selected), stat = "sf_coordinates") +
     # coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax)) +
     xlab("") + ylab("") +
+    annotation_scale(unit_category = "imperial") +
     theme_bw(base_size=20) + theme(panel.grid=element_blank())
   
   #only include points that were selected
   plot + 
-    geom_sf(data=all.random.sf[all.random.sf$selected == 1,], aes(col=alternate), pch=17, size=3) + #triangle for random points without existing nearby
+    geom_sf(data=all.random.sf[all.random.sf$selected == 1,], aes(col=alternate, shape=alternate), pch=17, size=3) + #triangle for random points without existing nearby
     geom_sf(data=random.st.sf[random.st.sf$selected == 1,], aes(col=alternate, shape=alternate), stroke=1.5) + 
     geom_sf(data=existing.sf[existing.sf$selected == 1,], col="steelblue", aes(shape=alternate)) + 
     geom_text_repel(data=existing.sf[existing.sf$selected == 1,],
-                    aes(label=st_route, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue") +
+                    aes(label=existing_route, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue") +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
   ggsave(filename=paste("../Figures/random_3k_with_existing_no_alternates/random_existing_noalternates_",st,".tiff", sep=""),
          height=18, width=18, units="in", dpi=400, compression="lzw")
   
   #all selected and alternate points
   plot + 
-    geom_sf(data=all.random.sf, aes(col=alternate), pch=17, size=5) + 
+    geom_sf(data=all.random.sf, aes(col=alternate), pch=17, size=5) +
     geom_sf(data=random.st.sf, aes(col=alternate, shape=alternate), stroke=1.5) +
     geom_sf(data=existing.sf, col="steelblue", aes(shape=alternate)) + scale_shape_manual(values=c(19,1)) +
-    geom_text_repel(data=existing.sf, aes(label=st_route, geometry=geometry, col=alternate), stat = "sf_coordinates") +
+    geom_text_repel(data=existing.sf, aes(label=existing_route, geometry=geometry, col=alternate), stat = "sf_coordinates") +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
   #blue dots = existing points, black dots = randomly distributed locations
   ggsave(filename=paste("../Figures/random_3k_with_existing/random_existing_",st,".tiff", sep=""),

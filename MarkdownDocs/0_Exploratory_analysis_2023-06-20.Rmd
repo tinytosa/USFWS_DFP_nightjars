@@ -14,8 +14,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #for playing with data
 require(tidyr) #for separate
-require(readxl)
+require(readxl) #for read_excel
+require(openxlsx) #for read.xlsx
 require(dplyr) #for bind_rows
+require(plyr)
 
 #for GIS
 require(sf)
@@ -113,7 +115,7 @@ nsn.time <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Ti
 
 nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Observations.csv") #39,658 observations
   #are there multiple entries per nsn.sampling?
-  unique(nsn.obs[duplicated(nsn.obs[,c("survey_stop_id","species_id")]),]$survey_stop_id) #hmmmmm...9640 duplicated observations for sampling occasions!
+  length(unique(nsn.obs[duplicated(nsn.obs[,c("survey_stop_id","species_id")]),]$survey_stop_id)) #hmmmmm...9640 sampling occasions with multiple observations!
   #25% of the observations 
   
   # nsn.sampling[nsn.sampling$id %in% 363,] #to get survey_id
@@ -121,10 +123,23 @@ nsn.obs <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Poi
   # nsn.obs[nsn.obs$survey_stop_id %in% 361:370,]
   
   # master.nsn[master.nsn$id.sampling %in% 10941,]
-  # 
   # nsn.sampling[nsn.sampling$survey_id %in% 1095,]
-  # 
   # nsn.all[nsn.all$Routeid %in% 890027,]
+  
+  #consolidate multiple rows with the same survey_stop_id
+  nrow(nsn.obs[duplicated(nsn.obs[,c("survey_stop_id","species_id")]),]) #19,234 observations for sampling occasion that already has an observation
+  #convert t/f to 1/0
+  nsn.obs[,grep(names(nsn.obs), pattern="minute", value=T)][nsn.obs[,grep(names(nsn.obs), pattern="minute", value=T)] == "t"] <- 1
+  nsn.obs[,grep(names(nsn.obs), pattern="minute", value=T)][nsn.obs[,grep(names(nsn.obs), pattern="minute", value=T)] == "f"] <- 0
+  
+  nsn.obs <- ddply(nsn.obs, .(survey_stop_id, species_id), summarize, 
+        min.1=sum(as.numeric(heard_minute_1)),
+        min.2=sum(as.numeric(heard_minute_2)),
+        min.3=sum(as.numeric(heard_minute_3)),
+        min.4=sum(as.numeric(heard_minute_4)),
+        min.5=sum(as.numeric(heard_minute_5)),
+        min.6=sum(as.numeric(heard_minute_6)))
+  nrow(nsn.obs) # 20,424 rows
 
 nsn.sampling <- read.csv("../Data_raw/Copy of NSN Data/NSN Data (March 28 2023) - Point Count Sampling.csv")
   nsn.sampling <- nsn.sampling[order(nsn.sampling$id),]
@@ -212,6 +227,8 @@ nrow(rt.id) #removed 68 rows
 rt.id = 4325 rows
 nsn = 3418 rows now 6002 rows?
 
+don't do this anymore. follow order of NSN network folks (next code chunk)
+
 ```{r, echo=T}
 # # master <- merge(nsn, rt.id, all=T, by.x="Routeid", by.y="id",
 # #                 suffixes=c(".rt","rtid"))
@@ -251,37 +268,39 @@ nsn = 3418 rows now 6002 rows?
 # #221
 # 
 # write.table(master, file="../Data_processed/master_nsn_2023-06-21.txt", sep=",", row.names=F)
+```
 
-#### need to add nsn.time and nsn.sampling together so can merge with route_id and stop_id
-#### merge in order that nsn people do it
+## merge in order that nsn people do it
+- need to add nsn.time and nsn.sampling together so can merge with route_id and stop_id
+- multiple rows of observations for a single survey means multiple birds were observed
 
+```{r, echo=T}
 #1. add nsn.obs to nsn.sampling
 
   #check how many rows in nsn.obs don't have corresponding nsn.sampling
   nsn.obs[!nsn.obs$survey_stop_id %in% nsn.sampling$id,] #none!
 
   #check how many nsn.sampling don't have corresponding nsn.sampling
-  nsn.sampling[!nsn.sampling$id %in% nsn.obs$survey_stop_id,] #28,701 rows!!!
+  # nsn.sampling[!nsn.sampling$id %in% nsn.obs$survey_stop_id,] #28,701 rows!!! lots of missing observation data
   nrow(nsn.sampling[!nsn.sampling$id %in% nsn.obs$survey_stop_id,])
 
-master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, suffixes=c(".obs",".sampling")) #68,359 rows (nrow(nsn.obs + 28,701))
+master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, suffixes=c(".obs",".sampling")) #49,125 rows 8/127/2023; 68,359 rows (nrow(nsn.obs) + 28,701)
 
 #2. add nsn.time to master
-master <- merge(master, nsn.time, by.x="survey_id", by.y="id", all=T, suffixes=c("",".time")) #68,359 rows
+master <- merge(master, nsn.time, by.x="survey_id", by.y="id", all=T, suffixes=c("",".time")) #49,125 rows
 
 #3. add nsn to master
   nrow(nsn[!(nsn$Routeid %in% master$route_id),]) #2663 rows (roughly the number of rows added with the merge aka routes without observations)
-master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all=T, suffixes=c("",".route")) #71,024 rows
+master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all=T, suffixes=c("",".route")) #51,790 rows 8/17/2023; 71,024 rows
 
 #4. add rt.id to master
   nrow(rt.id[!(rt.id$corrected %in% master$route_id),]) #420 rows not in master already
-master <- merge(master, rt.id, by.x="route_id", by.y="corrected", all=T, suffixes=c("",".rtid")) #71,444 rows
+master <- merge(master, rt.id, by.x="route_id", by.y="corrected", all=T, suffixes=c("",".rtid")) #52,210 rows 8/17/2023; 71,444 rows
 
 #5 add nsn.sp to master
-master <- merge(master, nsn.sp[,c("id","common_name","scientific_name","code")], by.x="species_id", by.y="id", all.x=T)
+master <- merge(master, nsn.sp[,c("id","common_name","scientific_name","code")], by.x="species_id", by.y="id", all.x=T) #52,210 rows
 
-master[,c("state","state.rtid")]
-
+# master[,c("state","state.rtid")]
 master$state <- master$state.rtid
 
 #do this once
@@ -296,7 +315,10 @@ master$state <- master$state.rtid
 non.nsn <- read.csv("../Data_raw/CombinedData/Allobs_noNJN.csv")
 non.nsn.sites <- read.csv("../Data_raw/CombinedData/Allroute_info.csv")
 
+##########
 #read in CT data
+##########
+
 # ct.1 <- read_excel("../Data_raw/CT Whippoorwill Data/WPWL2010.xls",
 #                    sheet="DataSummary4")
 #can also read in DataAnalysisInterval2 for counts by interval
@@ -329,8 +351,126 @@ for(f in ct.file.list)
 # write.table(file="../Data_raw/CT Whippoorwill Data/master_obs_CT_WPWL.txt",
 #             ct.obs.all, sep=",", row.names=F)
 
+########
+# read in Massachusetts data
+########
+#this excel document is a mess!
+######before running this script, make sure cells are merged for each route for columns "SITE" and "DATE", fix errors in times and longitude#######
+#no minute by minute detection history, only number detected per stop
+#NA rows in between each route
+#Notes contain start time and end time of survey, survey conditions, plus extra information
+#2013 data coordinates in DMS (epsg: 9107 ??), all other data in decimal-degrees (epsg: 4326 ??)
+#EPSG: 4326 is WGS84, decimal degrees
+#EPSG: 4269 is NAD83, decimal degrees
+#EPSG: 9107 is degree, minute, second? can't input in the format, so need to convert to decimal degrees manually
 
+#added new column in 2022 called EO_num?
+
+#approach
+#step 1: route/stop info: route name, stop num, lat/long
+#step 2: survey info: route name, date, observer, notes (split out time, sky conditions, noise)
+#step 3: obs info: stop num, EWPW
+#step 4: combine all 3 data frames for one master massachusetts data frame (save this)
+
+#info not used: direction, distance
+
+ma <- NULL
+ma.rt <- NULL
+ma.survey <- NULL
+ma.obs <- NULL
+
+for(y in 2013:2022)
+{
+  print(y)
+  #get route information
+  ma.y.fill <- read.xlsx("../Data_raw/CombinedData/NightjarSurvey_MA_DataResults_2013-2022.xlsx", sheet=as.character(y), fillMergedCells=T)
+  # ma.y.nofill <- read_excel("../Data_raw/CombinedData/NightjarSurvey_MA_DataResults_2013-2022.xlsx", sheet=as.character(y)) #this isn't very useful because all cells except top left cell of merged cells get turned into NAs
+
+  names(ma.y.fill) <- toupper(names(ma.y.fill))
+  ma.y.fill$DATE <- as.numeric(trimws(ma.y.fill$DATE))
+  #convert excel date (numeric) to character
+  ma.y.fill$DATE <- format(as.Date(ma.y.fill$DATE, origin = "1899-12-30"), format="%m/%d/%Y")
+  
+  #1. route/stop info
+  #need to remove white space (trimws), remove N and W, need to convert coordinates so all in the same projection and datum
+  ma.y.rt <- ma.y.fill[,c("SITE","STOP.#","LATITUDE","LONGITUDE")]
+  ma.y.rt$LATITUDE <- trimws(ma.y.rt$LATITUDE)
+  ma.y.rt$LONGITUDE <- trimws(ma.y.rt$LONGITUDE)
+  
+  if(y == 2013)
+  {
+    ma.y.rt <- separate(ma.y.rt, col="LATITUDE", into=c("lat.deg","lat.min","lat.sec","lat.dir"), remove=F, sep="°|'|\"")
+    ma.y.rt <- separate(ma.y.rt, col="LONGITUDE", into=c("long.deg","long.min","long.sec","long.dir"), remove=F, sep="°|'|\"")
+    ma.y.rt$x <- -1*(as.numeric(ma.y.rt$long.deg) + as.numeric(ma.y.rt$long.min)/60 + as.numeric(ma.y.rt$long.sec)/3600)
+    ma.y.rt$y <- as.numeric(ma.y.rt$lat.deg) + as.numeric(ma.y.rt$lat.min)/60 + as.numeric(ma.y.rt$lat.sec)/3600
+    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$x),], coords=c("x","y"), crs=4326)
+  }
+  else
+  {
+    ma.y.rt$LONGITUDE <- as.numeric(ma.y.rt$LONGITUDE)
+    ma.y.rt$LATITUDE <- as.numeric(ma.y.rt$LATITUDE)
+    
+    ma.y.rt$LONGITUDE <- -1*abs(ma.y.rt$LONGITUDE)
+    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$LATITUDE) & ma.y.rt$LATITUDE != "x",], coords=c("LONGITUDE","LATITUDE"), crs=4326)
+  }
+  ma.y.rt.uniform <- st_transform(ma.y.rt.sf, crs=4269) #convert to NAD83
+  
+  print(ggplot(data=AF_states[AF_states$ST == "MA",]) + geom_sf() + geom_sf(data=ma.y.rt.uniform) + 
+          theme_bw(base_size=20)) + theme(panel.grid=element_blank())
+  
+  ma.y.rt <- cbind(st_drop_geometry(ma.y.rt.uniform), st_coordinates(ma.y.rt.uniform)) #get the coordinates back in CRS: 4269
+  ma.y.rt <- ma.y.rt[!duplicated(ma.y.rt),]
+  
+  #2. survey info
+  ma.y.survey <- ma.y.fill[ma.y.fill$`STOP.#` %in% c(1), c("SITE","DATE","OBSERVER","NOTES")]
+  ma.y.survey$surveytime <- substr(gsub(ma.y.survey$NOTES, pattern=" ", replacement=""), 0, 9)
+  ma.y.survey <- separate(ma.y.survey, col="surveytime", into=c("starttime","endtime"), sep="-", remove=T)
+  
+  ma.y.survey$start_hour <- paste(as.numeric(substr(ma.y.survey$starttime, 0, 2)), ":", 
+                                  sprintf("%02d", as.numeric(substr(ma.y.survey$starttime, 3, 4))), sep="")
+  try(ma.y.survey[grep(ma.y.survey$start_hour, pattern="NA"),]$start_hour <- NA)
+  
+  ma.y.survey$end_hour <- paste(as.numeric(substr(ma.y.survey$endtime, 0, 2)), ":", 
+                                  sprintf("%02d", as.numeric(substr(ma.y.survey$endtime, 3, 4))), sep="")
+  try(ma.y.survey[grep(ma.y.survey$end_hour, pattern="NA"),]$end_hour <- NA)
+  # ma.y.survey[,c("SITE","DATE","start_hour","end_hour")]
+  
+  #3. obs info
+  # EWPW(#) is duplicated for each stop, since recording direction and distance of each bird
+  ma.y.obs <- ma.y.fill[,c("SITE","DATE","STOP.#","EWPW.(#)")]
+  ma.y.obs <- ma.y.obs[!duplicated(ma.y.obs[,c("SITE","DATE","STOP.#")]),]
+  ma.y.obs$`EWPW.(#)` <- as.numeric(ma.y.obs$`EWPW.(#)`)
+  ma.y.obs <- ma.y.obs[!is.na(ma.y.obs$`STOP.#`),]
+  
+  #4. combine 1,2,3 for master ma data frame
+  ma.y <- merge(ma.y.rt[,c("SITE","STOP.#","X","Y")], ma.y.obs, by=c("SITE","STOP.#"), all=T)
+  ma.y <- merge(ma.y, ma.y.survey[,c("SITE","DATE","OBSERVER","NOTES","start_hour","end_hour")], by=c("SITE","DATE"), all.x=T)
+  ma.y$start_year <- y
+  ma <<- rbind(ma, ma.y)
+  
+  
+  
+  #combine them all separately
+  ma.rt <<- rbind(ma.rt, cbind(ma.y.rt[,c("SITE","STOP.#","X","Y")], year=y))
+  ma.survey <<- rbind(ma.survey, cbind(ma.y.survey[,c("SITE","DATE","OBSERVER","NOTES","start_hour","end_hour")], year=y))
+  ma.obs <<- rbind(ma.obs, cbind(ma.y.obs, year=y))
+}
+
+nrow(ma.rt)
+ma.rt[duplicated(ma.rt[,c("X","Y")]),]
+ma.rt <- ma.rt[!duplicated(ma.rt[,c("X","Y")]),] #make sure only unique survey locations
+nrow(ma.rt) #642 routes
+table(ma.rt$SITE)
+write.csv(ma.rt, file="../Data_raw/CombinedData/MA_nightjar_routes.csv", row.names=F)
+
+write.csv(ma.survey, file="../Data_raw/CombinedData/MA_nightjar_surveyinfo.csv", row.names=F)
+write.csv(ma.obs, file="../Data_raw/CombinedData/MA_nightjar_observations.csv", row.names=F)
+
+write.csv(ma, file="../Data_raw/CombinedData/MA_nightjar_master_2013-2022.csv", row.names=F)
+
+#################
 #fix incorrect 
+#################
 non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude <- -(non.nsn.sites[non.nsn.sites$Route.Longitude > 0 & !is.na(non.nsn.sites$Route.Longitude),]$Route.Longitude)
 
 table(non.nsn.sites$state)
@@ -524,6 +664,10 @@ names(nh)
 # "noise"           "cars"            "moon"            "dir"           "species"
 # "min.1"           "min.2"           "min.3"         "min.4"           "min.5"           "min.6"
 
+##########
+#Connecticut
+##########
+
 #match columns with ny, nh, and vt data
 ct.data.all$stop <- as.numeric(substr(ct.data.all$PointID,
                            start=nchar(ct.data.all$PointID)-1, 
@@ -557,6 +701,22 @@ ct$min.6 <- as.numeric(ct$min.6)
 #remove intervals 7-10 for now
 ct <- ct[,!names(ct) %in% c("min.7","min.8","min.9","min.10")]
 
+####################
+#Massachusetts
+####################
+ma$id <- ma$SITE
+ma$Route.Stop <- as.numeric(ma$`STOP.#`)
+ma$state <- "MA"
+ma$name <- ma$SITE
+ma$Route.Latitude <- ma$Y
+ma$Route.Longitude <- ma$X
+ma$year <- ma$start_year
+ma$min.1 <- ma$`EWPW.(#)`
+ma$species <- "EWPW"
+ma$TotalDetections <- ma$`EWPW.(#)`
+ma$MaxDetections <- ma$`EWPW.(#)`
+ma$start_time <- paste(ma$DATE, ma$start_hour, sep=" ")
+
 #combine all non-nsn state data together
 columns <- c(names(nh), "start_time")
 non.nsn.master <- bind_rows(nh, ny[,names(nh)], vt[,names(nh)])
@@ -569,16 +729,17 @@ suppressWarnings(non.nsn.master$MaxDetections <- apply(non.nsn.master[,grep(name
 non.nsn.master[non.nsn.master$MaxDetections == "-Inf",]$MaxDetections <- NA
 non.nsn.master$Route.Stop <- as.numeric(non.nsn.master$Route.Stop)
 non.nsn.master <- bind_rows(non.nsn.master, ct)
+non.nsn.master <- bind_rows(non.nsn.master, ma[,names(ma) %in% names(non.nsn.master)])
 
 #separate out month, day, and time
 non.nsn.master <- separate(non.nsn.master, col=start_time, into=c("start_date","start_hour"), sep=" ", remove=F)
 non.nsn.master <- separate(non.nsn.master, col=start_date, into=c("start_month","start_day","start_year"), sep="/", remove=F) #can ignore warnings
 
-
+table(non.nsn.master$state)
 
 #only run once
 write.table(non.nsn.master,
-            file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", row.names=F)
+            file="../Data_processed/master_nonnsn_2023-08-17.txt", sep=",", row.names=F)
 ```
 
 ```{r, echo=F}

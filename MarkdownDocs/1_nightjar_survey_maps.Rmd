@@ -32,8 +32,9 @@ BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #correct one downloaded 7/1/2
 
 ##load data
 ```{r echo=T}
-master.nsn <- read.table(file="../Data_processed/master_nsn_2023-06-21.txt", sep=",", header=T)
-master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
+master.nsn <- read.table(file="../Data_processed/master_nsn_2023-07-24.txt", sep=",", header=T) #fixed multiple rows per survey issue, 8/17/2023
+# master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
+master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-08-17.txt", sep=",", header=T) #added MA, 8/17/2023
 ```
 
 ##create file of all survey locations
@@ -71,13 +72,14 @@ write.table(rt.all, file="../Data_processed/master_survey_locations.txt", sep=",
 
 table(rt.all$state, useNA = "always")
 #check FL routes
-table(rt.all[rt.all$state == "NY",]$st.route)
+table(rt.all[rt.all$state == "FL",]$st.route) #a bunch of routes with only 1 stop?
 
-nrow(rt.all[is.na(rt.all$Latitude),]) #26 rows, NY_Rocky Point, NY_
+#routes missing Lat/Long data
+nrow(rt.all[is.na(rt.all$Latitude),]) #18 rows
+#NY_Rocky Point, NY_LOSP1, NY_Fishers Island, NY_Mayfield, NY_, NH_3 rivers Woods, NH_, NH_Lyndeborough, VT_PittsfordVT
 rt.all.sf <- st_as_sf(rt.all[!is.na(rt.all$Latitude),], coords=c("Longitude","Latitude"), crs=crs(AF_states))
 
 ggplot(data=rt.all.sf) + geom_sf(data=AF_states) + geom_sf(size=1) + theme_bw(base_size=20) + theme(panel.grid=element_blank())
-
 
 ```
 
@@ -88,8 +90,8 @@ ggplot(data=rt.all.sf) + geom_sf(data=AF_states) + geom_sf(size=1) + theme_bw(ba
 nsn <- master.nsn[!is.na(master.nsn$Latitude),]
 na.nsn <- master.nsn[is.na(master.nsn$Latitude),]
 
-nrow(master.nsn) #71,307 rows
-nrow(nsn)        #44,503 rows
+nrow(master.nsn) #52,210 rows 8/23/2023; 71,307 rows #number of observations 
+nrow(nsn)        #17,235 rows 8/23/2023; 44,503 rows #number of observations with Lat/Long info
 
 af.nsn <- master.nsn[master.nsn$state %in% AF_states$ST,]
 af.nsn$species <- af.nsn$code

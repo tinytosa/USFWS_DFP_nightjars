@@ -1,5 +1,5 @@
 ---
-title: "4b nightjar survey tables by state"
+title: "Nightjar survey tables by state"
 author: "Marie Tosa, Anthony Roberts, Patrick Devers, US Fish and Wildlife Service"
 date: "`r Sys.Date()`"
 geometry: margin=1cm
@@ -15,6 +15,7 @@ knitr::opts_chunk$set(echo = F, warning=F, message=F)
 options(knitr.kable.NA = '')
 
 require(knitr)
+require(dplyr)
 
 #for GIS
 require(sf)
@@ -38,7 +39,7 @@ s2[s2$selected == 0,]$selected <- "alternate"
 names(s2) <- c("ST","BCR","selected","num.exist","num.new","num.total")
 
 s2 <- s2[order(s2$selected, decreasing=T),]
-s2 <- s2[order(s2$BCR),]
+# s2 <- s2[order(s2$BCR),]
 
 
 data <- read.csv("../Data_processed/table_for_states.csv")
@@ -75,8 +76,50 @@ plot <- ggplot() +
   xlab("") + ylab("") +
   theme_bw(base_size=20) + theme(panel.grid=element_blank())
 
+one.map <- function(st)
+{
+  cat("  \n") 
+  cat("## Map of closest existing routes and new randomly placed routes")
+  cat("  \n") 
+  
+  ex <- extent(AF_states[AF_states$ST == st,])
+
+  data.st <- data[data$ST == st,]
+  
+  data.st <- data.st %>% group_by(rand_rt_name) %>%
+    arrange(rand_rt_name, distance) %>%
+    filter(row_number()==1)
+  
+  #create "alternate" column so easier to plot
+  data.st$alternate <- 0
+  data.st[data.st$selected == 0,]$alternate <- 1
+  data.st$alternate <- factor(data.st$alternate)
+  
+  #create shape column, if there is a corresponding existing route
+  data.st$shape <- "triangle"
+  try(data.st[!is.na(data.st$Long.exist),]$shape <- "circle", silent=T)
+  
+  random.sf <- st_as_sf(data.st, coords=c("X.rand","Y.rand"), crs=4269)
+  existing.sf <- st_as_sf(data.st[!is.na(data.st$Long.exist),], coords=c("Long.exist","Lat.exist"), crs=4269)
+
+  #only include points that were selected
+  print(plot + 
+    geom_sf(data=random.sf[random.sf$selected == 1 & is.na(random.sf$Long.exist),], aes(col=alternate), pch=24, fill="black", size=3) + #triangle for random points without existing nearby
+    # geom_sf(data=random.sf[random.sf$selected == 1,], aes(col=alternate, shape=shape), fill="black", stroke=1.5) + 
+    geom_sf(data=existing.sf[existing.sf$selected == 1,], col="steelblue", aes()) + 
+    geom_text_repel(data=existing.sf[existing.sf$selected == 1,],
+                    aes(label=existing_rt, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue", size=2) +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin-0.15, ex@ymax)) +
+    annotation_scale(unit_category = "imperial") + #add scale bar
+    theme(legend.position = "none"))
+}
+
 init.map <- function(st)
 {
+  cat("  \n") 
+  cat("## Map of randomly placed routes and existing routes within 20 miles of the randomly placed routes")
+  cat("  \n") 
+  
   ex <- extent(AF_states[AF_states$ST == st,])
 
   data.st <- data[data$ST == st,]
@@ -94,7 +137,7 @@ init.map <- function(st)
   existing.sf <- st_as_sf(data.st[!is.na(data.st$Long.exist),], coords=c("Long.exist","Lat.exist"), crs=4269)
 
   #only include points that were selected
-  plot + 
+  print(plot + 
     geom_sf(data=random.sf[random.sf$selected == 1 & is.na(random.sf$Long.exist),], aes(col=alternate), pch=24, fill="black", size=3) + #triangle for random points without existing nearby
     geom_sf(data=random.sf[random.sf$selected == 1,], aes(col=alternate, shape=shape), fill="black", stroke=1.5) + 
     geom_sf(data=existing.sf[existing.sf$selected == 1,], col="steelblue", aes()) + 
@@ -102,13 +145,19 @@ init.map <- function(st)
                     aes(label=existing_rt, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue", size=2) +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin-0.15, ex@ymax)) +
     annotation_scale(unit_category = "imperial") + #add scale bar
-    theme(legend.position = "none")
+    theme(legend.position = "none"))
 }
 
 all.map <- function(st)
 {
+  cat("  \n") 
+  cat("## Map of randomly placed routes and alternate routes with existing routes wihtin 20 miles of the randomly placed routes")
+  cat("  \n") 
+  
   ex <- extent(AF_states[AF_states$ST == st,])
   data.st <- data[data$ST == st,]
+  
+  data.st %>% group_by()
   
   #create "alternate" column so easier to plot
   data.st$alternate <- 0
@@ -123,7 +172,7 @@ all.map <- function(st)
   existing.sf <- st_as_sf(data.st[!is.na(data.st$Long.exist),], coords=c("Long.exist","Lat.exist"), crs=4269)
 
   #only include points that were selected
-  plot + 
+  print(plot + 
     geom_sf(data=random.sf[is.na(random.sf$Long.exist),], aes(col=alternate), pch=24, size=2) + #triangle for random points without existing nearby
     geom_sf(data=random.sf[random.sf$alternate==1,], aes(col=alternate, shape=shape), fill=NA, stroke=1.5) + 
     geom_sf(data=random.sf[random.sf$alternate==0,], aes(col=alternate, shape=shape), fill="black", stroke=1.5) + 
@@ -134,212 +183,53 @@ all.map <- function(st)
                     aes(label=existing_rt, geometry=geometry, col=alternate), stat = "sf_coordinates", col="steelblue", size=2) +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin-0.15, ex@ymax)) +
     annotation_scale(unit_category = "imperial") +
-    theme(legend.position = "none")
+    theme(legend.position = "none"))
+}
+
+blanks <- rep(c(' ', '\n'),5) # This will print five blank lines between plots. 
+
+AddBreak <- function() {
+for (i in blanks)
+  cat(i)
 }
 
 ```
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.5)}
+
+The following tables and maps were produced to help facilitate a systematic survey of nightjars along the Atlantic Flyway. To achieve this goal, we conducted a power analysis, which determined that ~300 routes (3000 surveys) could be used to classify nightjar species as "endangered" (trend < -0.04 and final occupancy < 0.13), "threatened" (-0.04 < trend < 0 and 0.13 < final occupancy < 0.25), or "not warranted" (trend > 0, final occupancy > 0.25). Going off of the results of this analysis, we randomly distributed 300 routes along the Atlantic Flyway according to the area of the state and bird conservation region (BCR). We specified that routes must be at least 20 miles apart from one another. We did not use other criteria to censor areas of the flyway because each of the 3 nightjar species of interest (common nighthawk, eastern whip-poor-will, and chuck-will's-widow) are associated with different habitats and have different habits. We then compared the randomly placed routes to existing nightjar survey routes and highlight any within 20 miles of a randomly placed route. Because of safety concerns and logistical constraints with conducting nightjar survey routes, we produced additional "alternate" routes that fit within the randomly produced route schematic and could be used instead. Existing routes within 20 miles of these alternate routes are also highlighted. Therefore, each state ultimately has the opportunity to decide which routes are most appropriate.
+
+![](../Figures/legend_for_states.png){ height=40% width=40%}
+
+\newpage
+
+# BCR Map
+```{r, echo=F, results='asis', fig.dim=c(8.25,10)}
 plot + theme(legend.position=c(0.85, 0.25))
 ```
 \newpage
 
-## Connectiut {.allowframebreaks}
-
 ```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("CT")
-init_table("CT")
-alternate_table("CT")
-init.map("CT")
-all.map("CT")
-
-```
-\newpage
-
-## Delaware {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("DE")
-init_table("DE")
-alternate_table("DE")
-init.map("DE")
-all.map("DE")
-```
-\newpage
-
-## Florida {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("FL")
-init_table("FL")
-alternate_table("FL")
-init.map("FL")
-all.map("FL")
-```
-\newpage
-
-## Georgia {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("GA")
-init_table("GA")
-alternate_table("GA")
-init.map("GA")
-all.map("GA")
-```
-
-\newpage
-
-## Maine {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("ME")
-init_table("ME")
-alternate_table("ME")
-init.map("ME")
-all.map("ME")
-```
-
-
-\newpage
-
-## Maryland {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("MD")
-init_table("MD")
-alternate_table("MD")
-init.map("MD")
-all.map("MD")
-```
-
-\newpage
-
-## Massachusetts {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("MA")
-init_table("MA")
-alternate_table("MA")
-init.map("MA")
-all.map("MA")
-```
-
-\newpage
-
-## New Hampshire {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("NH")
-init_table("NH")
-alternate_table("NH")
-init.map("NH")
-all.map("NH")
-```
-
-\newpage
-
-## New Jersey {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("NJ")
-init_table("NJ")
-alternate_table("NJ")
-init.map("NJ")
-all.map("NJ")
-```
-
-\newpage
-
-## New York {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("NY")
-init_table("NY")
-alternate_table("NY")
-init.map("NY")
-all.map("NY")
-```
-
-\newpage
-
-## North Carolina {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("NC")
-init_table("NC")
-alternate_table("NC")
-init.map("NC")
-all.map("NC")
-```
-
-\newpage
-
-## Pennsylvania {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("PA")
-init_table("PA")
-alternate_table("PA")
-init.map("PA")
-all.map("PA")
-```
-
-\newpage
-
-## Rhode Island {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("RI")
-init_table("RI")
-alternate_table("RI")
-init.map("RI")
-all.map("RI")
-```
-
-\newpage
-
-## South Carolina {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("SC")
-init_table("SC")
-alternate_table("SC")
-init.map("SC")
-all.map("SC")
-```
-
-\newpage
-
-## New York {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("VT")
-init_table("VT")
-alternate_table("VT")
-init.map("VT")
-all.map("VT")
-```
-
-\newpage
-
-## Virginia {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("VA")
-init_table("VA")
-alternate_table("VA")
-init.map("VA")
-all.map("VA")
-```
-
-\newpage
-
-## West Virginia {.allowframebreaks}
-
-```{r, echo=F, results='asis', fig.dim=c(8.25,8.25)}
-summary_table("WV")
-init_table("WV")
-alternate_table("WV")
-init.map("WV")
-all.map("WV")
+for(st in AF_states$ST)
+{
+  if(st=="DC")
+  {next}
+  cat("#", AF_states[AF_states$ST == st,]$STATE_NAME, '\n')
+  
+  print(summary_table(st))
+  print(init_table(st))
+  print(alternate_table(st))
+  
+  cat("\n\n\\pagebreak\n")
+  
+  one.map(st)
+  
+  cat("\n\n\\pagebreak\n")
+  
+  init.map(st)
+  
+  cat("\n\n\\pagebreak\n")
+  
+  all.map(st)
+  
+  cat("\n\n\\pagebreak\n")
+}
 ```

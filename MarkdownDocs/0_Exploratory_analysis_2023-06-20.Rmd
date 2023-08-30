@@ -289,9 +289,21 @@ master <- merge(nsn.obs, nsn.sampling, by.x="survey_stop_id", by.y="id", all=T, 
 #2. add nsn.time to master
 master <- merge(master, nsn.time, by.x="survey_id", by.y="id", all=T, suffixes=c("",".time")) #49,125 rows
 
-#3. add nsn to master
+#3. add nsn to master; this adds lat/long to sites
   nrow(nsn[!(nsn$Routeid %in% master$route_id),]) #2663 rows (roughly the number of rows added with the merge aka routes without observations)
-master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all=T, suffixes=c("",".route")) #51,790 rows 8/17/2023; 71,024 rows
+master <- merge(master, nsn, by.x=c("route_id","stop_mit"), by.y=c("Routeid","Stop"), all.x=T, suffixes=c("",".route")) #49125 rows 8/17/2023
+
+  #nsn has lots of routes with just a stop 1 (no stop 2-10)
+  #if nsn doesn't have stop # in data table, will not give survey a lat/long
+  #assign all stops the same lat/long as stop 1 if no lat/long given in nsn, otherwise have to throw out a lot of data
+  master1 <- master[!is.na(master$Latitude),] #has lat/long info #14570 rows
+  master2 <- master[is.na(master$Latitude),] #no lat/long info #34555 rows
+    
+    nsn2 <- nsn[,!names(nsn) %in% c("Stop")]
+    nsn2 <- nsn2[!duplicated(nsn2$Routeid),]
+    master2 <- merge(master2[,!names(master2) %in% c("st_code","Latitude","Longitude","Routeid.char","rt_code","state","notes")], 
+          nsn2[,!names(nsn2) %in% c("Stop")], by.x="route_id", by.y="Routeid", all.x=T, suffixes=c("",".route"))
+  master <- rbind(master1, master2)
 
 #4. add rt.id to master
   nrow(rt.id[!(rt.id$corrected %in% master$route_id),]) #420 rows not in master already
@@ -359,9 +371,9 @@ for(f in ct.file.list)
 #no minute by minute detection history, only number detected per stop
 #NA rows in between each route
 #Notes contain start time and end time of survey, survey conditions, plus extra information
-#2013 data coordinates in DMS (epsg: 9107 ??), all other data in decimal-degrees (epsg: 4326 ??)
+#2013 data coordinates in DMS (epsg: 9107 ??), all other data in decimal-degrees (epsg: 4269) *NAD83 according to Drew Vitz
 #EPSG: 4326 is WGS84, decimal degrees
-#EPSG: 4269 is NAD83, decimal degrees
+#EPSG: 4269 is NAD83, decimal degrees ***
 #EPSG: 9107 is degree, minute, second? can't input in the format, so need to convert to decimal degrees manually
 
 #added new column in 2022 called EO_num?
@@ -391,6 +403,7 @@ for(y in 2013:2022)
   #convert excel date (numeric) to character
   ma.y.fill$DATE <- format(as.Date(ma.y.fill$DATE, origin = "1899-12-30"), format="%m/%d/%Y")
   
+  #####
   #1. route/stop info
   #need to remove white space (trimws), remove N and W, need to convert coordinates so all in the same projection and datum
   ma.y.rt <- ma.y.fill[,c("SITE","STOP.#","LATITUDE","LONGITUDE")]
@@ -403,7 +416,7 @@ for(y in 2013:2022)
     ma.y.rt <- separate(ma.y.rt, col="LONGITUDE", into=c("long.deg","long.min","long.sec","long.dir"), remove=F, sep="°|'|\"")
     ma.y.rt$x <- -1*(as.numeric(ma.y.rt$long.deg) + as.numeric(ma.y.rt$long.min)/60 + as.numeric(ma.y.rt$long.sec)/3600)
     ma.y.rt$y <- as.numeric(ma.y.rt$lat.deg) + as.numeric(ma.y.rt$lat.min)/60 + as.numeric(ma.y.rt$lat.sec)/3600
-    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$x),], coords=c("x","y"), crs=4326)
+    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$x),], coords=c("x","y"), crs=4269)
   }
   else
   {
@@ -411,7 +424,7 @@ for(y in 2013:2022)
     ma.y.rt$LATITUDE <- as.numeric(ma.y.rt$LATITUDE)
     
     ma.y.rt$LONGITUDE <- -1*abs(ma.y.rt$LONGITUDE)
-    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$LATITUDE) & ma.y.rt$LATITUDE != "x",], coords=c("LONGITUDE","LATITUDE"), crs=4326)
+    ma.y.rt.sf <- st_as_sf(ma.y.rt[!is.na(ma.y.rt$LATITUDE) & ma.y.rt$LATITUDE != "x",], coords=c("LONGITUDE","LATITUDE"), crs=4269)
   }
   ma.y.rt.uniform <- st_transform(ma.y.rt.sf, crs=4269) #convert to NAD83
   
@@ -421,20 +434,26 @@ for(y in 2013:2022)
   ma.y.rt <- cbind(st_drop_geometry(ma.y.rt.uniform), st_coordinates(ma.y.rt.uniform)) #get the coordinates back in CRS: 4269
   ma.y.rt <- ma.y.rt[!duplicated(ma.y.rt),]
   
+  #####
   #2. survey info
   ma.y.survey <- ma.y.fill[ma.y.fill$`STOP.#` %in% c(1), c("SITE","DATE","OBSERVER","NOTES")]
   ma.y.survey$surveytime <- substr(gsub(ma.y.survey$NOTES, pattern=" ", replacement=""), 0, 9)
   ma.y.survey <- separate(ma.y.survey, col="surveytime", into=c("starttime","endtime"), sep="-", remove=T)
   
+  #if Notes start with start: XXXX, End: XXXX
+  ma.y.survey[grep(ma.y.survey$starttime, pattern="start", ignore.case=T),]$endtime <- substr(ma.y.survey[grep(ma.y.survey$starttime, pattern="start", ignore.case=T),]$NOTES, 19,22)
+  ma.y.survey[grep(ma.y.survey$starttime, pattern="start", ignore.case=T),]$starttime <- substr(ma.y.survey[grep(ma.y.survey$starttime, pattern="start", ignore.case=T),]$NOTES, 8,11)
+  
   ma.y.survey$start_hour <- paste(as.numeric(substr(ma.y.survey$starttime, 0, 2)), ":", 
                                   sprintf("%02d", as.numeric(substr(ma.y.survey$starttime, 3, 4))), sep="")
-  try(ma.y.survey[grep(ma.y.survey$start_hour, pattern="NA"),]$start_hour <- NA)
+  try(ma.y.survey[grep(ma.y.survey$start_hour, pattern="NA"),]$start_hour <- NA) #replace NA:NA with NA
   
   ma.y.survey$end_hour <- paste(as.numeric(substr(ma.y.survey$endtime, 0, 2)), ":", 
                                   sprintf("%02d", as.numeric(substr(ma.y.survey$endtime, 3, 4))), sep="")
   try(ma.y.survey[grep(ma.y.survey$end_hour, pattern="NA"),]$end_hour <- NA)
   # ma.y.survey[,c("SITE","DATE","start_hour","end_hour")]
   
+  ####
   #3. obs info
   # EWPW(#) is duplicated for each stop, since recording direction and distance of each bird
   ma.y.obs <- ma.y.fill[,c("SITE","DATE","STOP.#","EWPW.(#)")]

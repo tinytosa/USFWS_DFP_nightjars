@@ -92,7 +92,7 @@ only do this once, since it will generate new points each time
 comp <- read.csv(file="../Data_processed/sampling_comparison_nsn_bbs.csv")
 comp <- comp[!is.na(comp$BCR),]
 
-#can you set so points have to be a certain distance away from each other???
+#can you set so points have to be a certain distance away from each other? Yes.
 buffer <- 20*1609 #20 miles in m
 multiplier <- 2
 route.pts <- NULL
@@ -181,7 +181,9 @@ dist.routes <- data.frame(dist.routes)
 names(dist.routes) <- routes[!is.na(routes$Latitude),]$st.route.stop #label columns
 dist.routes <- cbind(dist.routes, random.routes[,c("route_name","selected")]) #label rows
 
-dist.long <- pivot_longer(dist.routes, values_to="dist", cols='FL_0001..1':'CT_WH85..9')  # CT_NB86..11
+head(names(dist.routes))
+tail(names(dist.routes)) #make sure the next line of code contains the first and last route names
+dist.long <- pivot_longer(dist.routes, values_to="dist", cols='FL_0001..1':'MA_Quinapoxet River, Holden (Forestry lot scouting observations)..6') 
 dist.long <- separate(dist.long, col="name", into=c("st_route","stop"), remove=F, sep="[.][.]")
 
 ### change this as necessary ###
@@ -203,6 +205,7 @@ to_combine <- merge(to_combine,
 # X and Y = coordinates of random.routes
 # Longitude and Latitude = coordinates of current NSN routes
 
+to_combine <- to_combine[to_combine$ST == substr(to_combine$st_route, 0, 2),] #make sure existing and random routes are in the same state
 
 ###########
 #how many random.routes already have existing routes that could be used
@@ -217,37 +220,37 @@ summary.need.have <- merge(need.r, sum.bcr.st, by=c("ST","BCR","selected"), all.
 summary.need.have[is.na(summary.need.have)] <- 0
 summary.need.have$num.remaining <- summary.need.have$num.random.need - summary.need.have$num.random.routes
 
-# write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F) #this isn't quite right since includes routes from a different state
+write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_existingroutes.csv", row.names=F) #isn't quite right because has points in different BCRs
 
 # to_combine$selected <- factor(to_combine$selected)
 # random.sf$selected <- factor(random.sf$selected)
 
 #can't seem to get the symbols and shapes correct with "selected" column
-to_combine$alternate <- 1-to_combine$selected
-random.sf$alternate <- 1-random.sf$selected
-
-to_combine$alternate <- factor(to_combine$alternate)
-random.sf$alternate <- factor(random.sf$alternate)
+# to_combine$alternate <- 1-to_combine$selected
+# random.sf$alternate <- 1-random.sf$selected
+# 
+# to_combine$alternate <- factor(to_combine$alternate)
+# random.sf$alternate <- factor(random.sf$alternate)
 
 #############
 #create tables for each state with existing routes and random routes that need to be created
 #############
 names(to_combine) <- c("existing_rt_stop","random_route_name","selected","existing_route","stop","distance",
-                       "X.random","Y.random","state.random","BCR.random","Longitude.existing","Latitude.existing","alternate")
-to_combine <- separate(to_combine, col="existing_route", into=c("state.existing","existing_route_name"), sep="_", remove=F)
-to_combine <- to_combine[to_combine$state.random == to_combine$state.existing,] #make sure existing and random routes are in the same state
+                       "X.random","Y.random","state.random","BCR.random","Longitude.existing","Latitude.existing") #,"alternate")
+# to_combine <- separate(to_combine, col="existing_route", into=c("state.existing","existing_route_name"), sep="_", remove=F)
+# to_combine <- to_combine[to_combine$state.random == to_combine$state.existing,] #make sure existing and random routes are in the same state
 
 #if existing route listed multiple times, remove the one that is further away
 to_combine <- to_combine[order(to_combine$existing_route, to_combine$distance),]
 to_combine <- to_combine[!duplicated(to_combine$existing_route),]
 
-state_table <- merge(to_combine[,c("existing_rt_stop","existing_route","existing_route_name","state.existing","stop",
+state_table <- merge(to_combine[,c("existing_rt_stop","existing_route","stop",
                                    "Longitude.existing","Latitude.existing",
                                    "distance","random_route_name","selected")], 
                      random.routes, by.x=c("random_route_name","selected"), by.y=c("route_name","selected"), all.y=T)
 state_table <- state_table[order(state_table$ST, state_table$BCR, state_table$selected),]
 
-names(state_table) <- c("random_route_name","selected","existing_rt_stop","existing_route","existing_route_name","state.existing","stop",
+names(state_table) <- c("random_route_name","selected","existing_rt_stop","existing_route","stop",
                         "Longitude.existing","Latitude.existing","distance","X.random","Y.random","ST","BCR")
 
 write.csv(state_table[,c("random_route_name","selected","existing_route","Longitude.existing","Latitude.existing","distance","X.random","Y.random","ST","BCR")], file="../Data_processed/table_for_states.csv", row.names=F)
@@ -262,17 +265,19 @@ write.csv(s2, file="../Data_processed/table_for_states_summary.csv", row.names=F
 #############
 #plot maps
 #############
+require(ggspatial)
+
 for(st in unique(AF_states$ST))
 {
   print(st)
   #create sf objects from to_combine
   # random.st.sf <- st_as_sf(to_combine[to_combine$ST == st,], coords=c("X","Y"), crs=crs(BCR.ST))
-  existing.sf <- st_as_sf(to_combine[to_combine$state.random == st,], coords=c("Longitude.existing","Latitude.existing"), crs=crs(BCR.ST))
+  existing.sf <- st_as_sf(to_combine[to_combine$state.random == st,], coords=c("Longitude.existing","Latitude.existing"), crs=4269)
   # all.random.sf <- random.sf[random.sf$ST == st &
   #                              !random.sf$route_name %in% random.st.sf$route_name,]
 
   
-  random.st.sf <- st_as_sf(to_combine, coords=c("X.random","Y.random"), crs=crs(BCR.ST))
+  random.st.sf <- st_as_sf(to_combine, coords=c("X.random","Y.random"), crs=4269)
   # existing.sf <- st_as_sf(to_combine, coords=c("Longitude","Latitude"), crs=crs(BCR))
 
   all.random.sf <- random.sf[random.sf$ST == st &
@@ -320,4 +325,114 @@ for(st in unique(AF_states$ST))
   ggsave(filename=paste("../Figures/random_3k_with_existing/random_existing_",st,".tiff", sep=""),
          height=18, width=18, units="in", dpi=400, compression="lzw")
 }
+```
+
+# compare locations of BBS routes to random locations
+```{r}
+
+random.routes <- read.table("../Data_processed/random_pts_area3k.txt", sep=",", header=T)
+random.routes$route_name <- paste(random.routes$BCR, random.routes$ST, 1:nrow(random.routes), sep="-")
+random.sf <- st_as_sf(random.routes, coords=c("X","Y"), crs=crs(BCR.ST))
+
+
+#load BBS route locations
+rt <- read.csv("../Data_raw/BBS_2022/routes.csv")
+  rt <- rt[rt$BCR %in% BCR$BCR,]
+  table(rt[,c("Active","BCR")]) #number of routes in each BCR
+  table(rt$StateNum) #number of routes in each state
+  
+  rt$Active <- factor(rt$Active)
+  rt$StateNum <- factor(rt$StateNum)
+  rt$BCR <- factor(rt$BCR)
+  
+  rt$ct.st.rt <- paste(rt$CountryNum, rt$StateNum, rt$Route, sep="-")
+  
+  st.key <- read.csv("../Data_raw/BBS_state_key.csv")
+  rt <- merge(rt, st.key[,c("StateNum","StateAbb")], by="StateNum", all.x=T)
+
+rt.sf <- st_as_sf(rt, coords=c("Longitude","Latitude"), crs=4269)
+
+#calculate distance between points
+bbs.dist.routes <- st_distance(random.sf, rt.sf, by_element=F)
+units(bbs.dist.routes) <- make_units(mi) #convert units from m to mi
+# units(dist.routes) <- as_units(quote(mi)) #convert units from m to mi
+#rows = random.sf, columns=rt.sf
+
+#convert from wide to long
+dist.routes <- data.frame(bbs.dist.routes)
+names(dist.routes) <- rt[!is.na(rt$Latitude),]$ct.st.rt #label columns
+dist.routes <- cbind(dist.routes, random.routes[,c("route_name","selected")]) #label rows
+
+head(names(dist.routes))
+tail(names(dist.routes)) #make sure the next line of code contains the first and last route names
+dist.long <- pivot_longer(dist.routes, values_to="dist", cols='840-2-1':'840-90-951') 
+
+### change this as necessary ###
+distance.threshold <- set_units(20, mi)
+###
+
+to_combine <- dist.long[dist.long$dist < distance.threshold,]
+
+#add lat long coordinates to route_name and st_route_stop
+to_combine <- merge(to_combine, random.routes, by=c("route_name","selected"), all.x=T)
+to_combine <- merge(to_combine, 
+                    rt[,c("ct.st.rt","BCR","StateAbb","Longitude","Latitude")],
+                    by.x="name", by.y="ct.st.rt", all.x=T, suffixes=c(".random",".bbs"))
+# name = ct.st.rt in rt
+# route_name = route_name in random.routes
+# st_route = st.route in routes
+# X and Y = coordinates of random.routes
+# Longitude and Latitude = coordinates of BBS routes
+
+to_combine <- to_combine[to_combine$ST == to_combine$StateAbb,] #make sure existing and random routes are in the same state
+to_combine <- to_combine[to_combine$BCR.random == to_combine$BCR.bbs,] #make sure existing and random routes are in the same BCR
+names(to_combine) <- gsub(names(to_combine), pattern="BCR.random", replacement="BCR")
+
+###########
+#how many random.routes already have existing BBS routes that could be used
+sum.r <- ddply(to_combine, .(route_name, selected, ST, BCR),
+               summarize, num.existing=length(name)) #summarized by random.route
+sum.bcr.st <- ddply(sum.r, .(selected, ST, BCR), summarize, num.random.routes=length(route_name)) #summarize by bcr-state level, number of random routes with existing BBS routes
+
+#need to compare with how many routes we need run
+need.r <- ddply(random.routes, .(ST, BCR, selected), summarize, num.random.need=length(route_name))
+
+summary.need.have <- merge(need.r, sum.bcr.st, by=c("ST","BCR","selected"), all.x=T)
+summary.need.have[is.na(summary.need.have)] <- 0
+summary.need.have$num.remaining <- summary.need.have$num.random.need - summary.need.have$num.random.routes
+
+write.csv(summary.need.have, file="../Data_processed/random_pts_area3k_vs_BBSroutes.csv", row.names=F) #this isn't quite right since includes routes from a different state
+
+#############
+#create tables for each state with existing routes and random routes that need to be created
+#############
+to_combine <- to_combine[,!names(to_combine) %in% c("BCR.bbs","StateAbb")]
+names(to_combine) <- c("BBS_route","random_route_name","selected","distance",
+                       "X.random","Y.random","state.random","BCR.random","Longitude.BBS","Latitude.BBS")
+
+#if existing route listed multiple times, remove the one that is further away
+to_combine <- to_combine[order(to_combine$BBS_route, to_combine$distance),]
+to_combine <- to_combine[!duplicated(to_combine[,c("BBS_route","random_route_name")]),]
+
+state_table <- merge(to_combine[,c("BBS_route",
+                                   "Longitude.BBS","Latitude.BBS",
+                                   "distance","random_route_name","selected")], 
+                     random.routes, by.x=c("random_route_name","selected"), by.y=c("route_name","selected"), all.y=T)
+state_table <- state_table[order(state_table$random_route_name),]
+state_table <- state_table[order(state_table$ST, state_table$BCR, state_table$selected),]
+
+names(state_table) <- c("random_route_name","selected","BBS_route",
+                        "Longitude.BBS","Latitude.BBS","distance","X.random","Y.random","ST","BCR")
+
+write.csv(state_table, file="../Data_processed/table_for_states_BBS.csv", row.names=F)
+
+########
+s1 <- ddply(state_table, .(random_route_name, ST, BCR, selected), #number of BBS routes per random route
+            summarize, num.BBS=sum(!is.na(BBS_route)), num.na=sum(is.na(BBS_route)))
+s2 <- ddply(s1, .(ST, BCR, selected), summarize, num.BBS=sum(num.BBS != 0), num.need=sum(num.na), num.total=length(random_route_name))
+s2[s2$selected == 1,]$selected <- "selected"
+s2[s2$selected == 0,]$selected <- "alternate"
+
+write.csv(s2, file="../Data_processed/table_for_states_summary_BBS.csv", row.names=F)
+
 ```

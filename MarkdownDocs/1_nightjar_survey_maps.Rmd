@@ -9,6 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 
 #load packages
+require(tidyr)
 require(plyr)
 
 require(sf)
@@ -35,6 +36,9 @@ BCR <- read_sf(dsn="../../GIS", layer="BCR-state") #correct one downloaded 7/1/2
 master.nsn <- read.table(file="../Data_processed/master_nsn_2023-07-24.txt", sep=",", header=T) #fixed multiple rows per survey issue, 8/17/2023
 # master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-06_21.txt", sep=",", header=T)
 master.nonnsn <- read.table(file="../Data_processed/master_nonnsn_2023-08-17.txt", sep=",", header=T) #added MA, 8/17/2023
+
+table(master.nsn$state)
+table(master.nonnsn$state)
 ```
 
 ##create file of all survey locations
@@ -100,12 +104,12 @@ af.nsn.sf <- st_as_sf(af.nsn[!is.na(af.nsn$Latitude),],
                       coords=c("Latitude","Longitude"),
                       crs=4269)
 
-nrow(af.nsn)    #28,129 rows
-nrow(af.nsn.sf) #16,203 rows
+nrow(af.nsn)    #19510 rows
+nrow(af.nsn.sf) #6016 rows
 
 #non nsn data
-nrow(master.nonnsn)                                        #3,818 rows, now 4,730 rows
-nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #3,398 rows, now 4,559 rows
+nrow(master.nonnsn)                                        #now 14,486 rows 8/18/2023
+nrow(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),]) #now 14,396 rows
 
 nonnsn.sf <- st_as_sf(master.nonnsn[!is.na(master.nonnsn$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=4269)
 
@@ -132,12 +136,14 @@ surveys.year.long <- surveys.year.long[order(surveys.year.long$year),]
 surveys.year.wide <- pivot_wider(surveys.year.long, 
                                  names_from="year", id_cols="state",
                                  values_from="numsurveys", values_fill = 0)
+surveys.year.wide
 write.csv(surveys.year.wide,
           file="../Data_processed/summary_nsn_non-nsn_surveys_perYear_perState.csv")
 
 routes.year.wide <- pivot_wider(surveys.year.long, 
                                  names_from="year", id_cols="state",
                                  values_from="numroutes", values_fill = 0)
+routes.year.wide
 write.csv(routes.year.wide,
           file="../Data_processed/summary_nsn_non-nsn_routes_perYear_perState.csv")
 
@@ -145,6 +151,7 @@ write.csv(routes.year.wide,
 current.surveys <- ddply(all.locs[all.locs$year %in% c(2019:2023),], .(state),
                          summarize, numcurrentsurveys=length(route_id.char),
                          numcurrentroutes=length(unique(route_id.char)))
+current.surveys
 write.csv(current.surveys,
           file="../Data_processed/summary_nsn_non-nsn_surveys_current.csv")
 
@@ -198,19 +205,20 @@ sp.map <- base2 +
 ggsave(sp.map, filename="../Figures/NSN/all_surveys_sp3.tiff", height=8, width=20, #no ANNI or NONE maps
        units="in", dpi=400, compression="lzw") 
 
-for(y in 2008:2023)
+for(y in 2008:2022)
 {
+  print(y)
   sp.map <- base + 
     geom_sf(data=all.locs.sf[all.locs.sf$year %in% y,],
           pch=1, col="black", size=0.5, stroke=0.1) +
-    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
+    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y & af.nsn.sf$species %in% sp,], 
                   aes(col=species), size=1) + 
-    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
+    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y & nonnsn.sf$species %in% sp,], 
                   aes(col=species), size=1) +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 
 ggsave(sp.map, filename=paste("../Figures/NSN/surveys_by_year/all_surveys_sp_", y, ".tiff", sep=""),
-       height=8, width=20, units="in", dpi=400, compression="lzw")
+       height=8, width=16, units="in", dpi=400, compression="lzw")
 }
 
 ```
@@ -220,7 +228,7 @@ ggsave(sp.map, filename=paste("../Figures/NSN/surveys_by_year/all_surveys_sp_", 
 ```{r, echo=T}
 #include all stops on routes
 y <- 2019:2023
-rt.sf <- st_as_sf(rt, coords=c("Latitude","Longitude"), crs=projection(AF_states))
+rt.sf <- st_as_sf(rt, coords=c("Latitude","Longitude"), crs=4269)
 
 #subsetted below, so not necessary
 # rt.current.sf <- rt.sf[rt.sf$Routeid.char %in% 
@@ -233,9 +241,9 @@ sp.map <- base +
     #                      unique(all.locs[all.locs$year %in% y,]$route_id.char),],
     #         pch=1, col="black", size=0.5, stroke=0.1) +
     geom_sf(data=rt.all.sf, pch=1, col="black", size=0.5, stroke=0.1) +
-    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
+    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y & af.nsn.sf$code %in% sp,], 
                   aes(col=species), size=1) + 
-    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
+    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y & nonnsn.sf$species %in% sp,], 
                   aes(col=species), size=1) +
     facet_wrap(~species, nrow=1) + theme(legend.position = "none")
 sp.map
@@ -288,9 +296,9 @@ for(s in AF_states$ST)
     geom_sf(data=rt.sf[rt.sf$Routeid.char %in% 
                          unique(all.locs[all.locs$year %in% y,]$route_id.char),],
             pch=1, col="black", size=0.5, stroke=0.1) +
-    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y,], 
+    geom_sf(data=af.nsn.sf[af.nsn.sf$start_year %in% y & af.nsn.sf$code %in% sp,], 
                   aes(col=species), size=2) + 
-    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y,], 
+    geom_sf(data=nonnsn.sf[nonnsn.sf$year %in% y & nonnsn.sf$species %in% sp,], 
                   aes(col=species), size=2) +
     facet_wrap(~species, nrow=1) +
     coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin, ex@ymax))
@@ -308,11 +316,12 @@ for(s in AF_states$ST)
 ```{r, echo=T}
 #assign each point to BCR value
 # unique.locs <- unique(all.locs[,c("route_id.char","state")])
-unique.locs <- all.locs[!duplicated(all.locs$route_id.char),
+unique.locs <- all.locs[!is.na(all.locs$Longitude),]
+unique.locs <- unique.locs[!duplicated(unique.locs$route_id.char),
                         c("route_id.char","state","Longitude","Latitude")]
 unique.locs.sf <- st_as_sf(unique.locs[!is.na(unique.locs$Longitude),], 
                            coords=c("Longitude","Latitude"),
-                           crs=projection(AF_states))
+                           crs=4269)
 #assign BCRs and states to survey points
 loc.bcr <- sapply(st_intersects(unique.locs.sf, BCR),
                   function(z) if (length(z)==0) NA_integer_ else z)
@@ -327,8 +336,9 @@ loc.bcr <- merge(loc.bcr, BCR.st, by.x="loc.bcr", by.y="bcr.id", all.x=T)
 loc.bcr$BCR <- factor(loc.bcr$BCR)
 
 loc.bcr.na <- loc.bcr[is.na(loc.bcr$loc.bcr),]
+nrow(loc.bcr.na)
 
-loc.bcr.na[loc.bcr.na$state %in% "VT",]
+loc.bcr.na[loc.bcr.na$state %in% "MA",]
 
 ###########
 #fix loc.bcr that don't have a BCR value
@@ -344,13 +354,17 @@ loc.bcr[loc.bcr$state %in% "FL" & is.na(loc.bcr$BCR),]$BCR <- 31
 loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("New England/Mid-Atlantic Coast")
 loc.bcr[loc.bcr$state %in% "VA" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
-loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("Atlantic Northern Forest")
-loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCR <- 14
+loc.bcr[loc.bcr$state %in% "MA" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("New England/Mid-Atlantic Coast")
+loc.bcr[loc.bcr$state %in% "MA" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
-loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("LOWER GREAT LAKES/ ST. LAWRENCE PLAIN")
-loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCR <- 13
+# loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("Atlantic Northern Forest")
+# loc.bcr[loc.bcr$state %in% "VT" & is.na(loc.bcr$loc.bcr),]$BCR <- 14
+
+# loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCRNAME <- toupper("New England/Mid-Atlantic Coast")
+# loc.bcr[loc.bcr$state %in% "NY" & is.na(loc.bcr$loc.bcr),]$BCR <- 30
 
 loc.bcr[is.na(loc.bcr$BCR),]
+#remaining point says "NC", but coordinates are in Ontario
 
 ####
 #save this since has st-bcr info
@@ -370,6 +384,7 @@ nsn.plot <- ggplot() +
   scale_color_brewer(palette="Set2", na.value="black") +
   theme_bw(base_size=20) + 
   theme(panel.grid=element_blank(), legend.position=c(0.8, 0.25))
+nsn.plot
 ggsave(nsn.plot, filename = "../Figures/NSN/all_surveys_by_BCR-state.tiff",
        height=8, width=8, units="in", dpi=400, compression="lzw")
 
@@ -380,7 +395,7 @@ st_geometry(loc.bcr) = NULL #convert back to data frame
 
 ###########
 #current surveys (2019-2023)
-all.locs <- merge(all.locs, loc.bcr, by=c("route_id.char","state"), all.x=T) #32,859 obs., 39512 with Maine
+all.locs <- merge(all.locs, loc.bcr, by=c("route_id.char","state"), all.x=T) #33,996 obs.
 
 #summarize by BCR-State
 current.surveys <- ddply(all.locs[all.locs$year %in% c(2019:2023),],
@@ -393,4 +408,42 @@ write.csv(current.surveys,
           file="../Data_processed/summary_nsn_non-nsn_surveys_current_bcr-state.csv")
 ```
 
+# create animation of detections of nightjars by year
+```{r}
+#make sure to run through 5_nsn_detectionhistories_2023-07-13.R before running this part
+require(magick)
 
+BCR$BCR <- factor(BCR$BCR)
+
+#created this file in 5_nsn_detectionhistories_2023-07-13.Rmd
+nightjars <- read.table("../Data_processed/master_alldata_2023-08-18.txt", sep=",", header=T) #22,339 observations
+nightjars$BCR <- factor(nightjars$BCR)
+nightjars.sf <- st_as_sf(nightjars[!is.na(nightjars$Route.Latitude),], coords=c("Route.Longitude","Route.Latitude"), crs=4269)
+
+table(nightjars.sf$species)
+# ANNI CONI CWWI EWPW NONE
+#    2  763 2094 4272 9417
+
+#create still images and the stitch together
+sp <- c("CONI","CWWI","EWPW")
+for(y in 2007:2022)
+{
+  print(y)
+  ggplot() +
+    geom_sf(data=BCR, aes(fill=BCR), alpha=0.3, col="grey80") + scale_fill_brewer(palette = "Set2") +
+    geom_sf(data=nightjars.sf[nightjars.sf$year %in% y, c("year","site","BCR")], pch=1, col="grey25", size=1, stroke=0.1) +    
+    geom_sf(data=nightjars.sf[nightjars.sf$year %in% y & nightjars.sf$species %in% sp,], aes(col=species, size=TotalDetections)) +
+    facet_wrap(~species, nrow=1) + theme_bw(base_size=20) + theme(legend.position = "none", panel.grid=element_blank()) + 
+    ggtitle(y)
+  ggsave(filename=paste("../Figures/NSN/surveys_animation/a_", y, ".png", sep=""), height=8, width=16)
+}
+
+#animate with magick
+list.files(path="../Figures/NSN/surveys_animation/", pattern=".png", full.names=T) %>%
+  image_read() %>%
+  image_join() %>%
+  image_animate(fps=2) %>%
+  image_write("../Figures/NSN/surveys_animation/NSN_surveys_2007-2022.gif")
+
+
+```

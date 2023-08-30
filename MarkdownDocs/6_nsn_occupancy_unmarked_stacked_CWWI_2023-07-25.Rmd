@@ -60,6 +60,7 @@ plot.marginal <- function(sp, mod, par, par.name, type)
     geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
   print(o)
   ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+  return(o)
 }
 
 ```
@@ -109,7 +110,7 @@ summary(data)
 # data <- data[!is.na(data$noise),]
 # 
 # data <- data[!is.na(data$start_date_j),] #removes most of NH sites since they don't have month/day or start_time info
-# data <- data[!data$start_month %in% c(9, 10, 11),] #1 survey in september, 20 surveys in october, and 31 surveys in november
+# # data <- data[!data$start_month %in% c(9, 10, 11),] #1 survey in september, 20 surveys in october, and 31 surveys in november
 
 #####
 #for occupancy only models and global models
@@ -154,7 +155,9 @@ unique(sp.stacked)
 site.stacked <- data[,!names(data) %in% grep(names(data), pattern="min", value=T)] #siteCovs
 
 #add in transformations for variables
-site.stacked$start_date_j2 <- scale(site.stacked$start_date_j)*scale(site.stacked$start_date_j)
+site.stacked$start_date_j2 <- scale(site.stacked$start_date_j)^2
+site.stacked$start_time2 <- scale(site.stacked$start_time_s)^2
+
 site.stacked$Route.Latitude2 <- scale(site.stacked$Route.Latitude)^2
 site.stacked$Route.Longitude2 <- scale(site.stacked$Route.Longitude)^2
 
@@ -163,38 +166,38 @@ min.df <- matrix(rep(1:6, times=nrow(sp.stacked)), byrow=T, ncol=6) #add obsCovs
 umf <- unmarkedFrameOccu(y=sp.stacked, siteCovs=site.stacked, obsCovs=list(min=min.df))
 head(umf)
 
-# tiff(filename="../Figures/occupancy/CWWI_dethist_nsn_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
-# plot(umf)
-# dev.off()
+tiff(filename="../Figures/occupancy/CWWI_dethist_nsn_stacked.tiff", height=10, width=8, units="in", compression="lzw", res=400)
+plot(umf)
+dev.off()
 
 plot(umf)
 summary(umf)
 
 #y=1/(y=0 + y=1)
-29891/(51541 + 29891) #only 30.1% of occasions where CWWI were detected (with all NA data removed) for the detection only model
-14782/(58275 + 14782) #only 20.2% of occasions where CWWI were detected for the occupancy only model
+19651/(27851 + 19651) #only 41.4% of occasions where CWWI were detected (with all NA data removed) for the detection only model
+14808/(55957 + 14808) #only 20.9% of occasions where CWWI were detected for the occupancy only model
 
 ```
 
 ## run detection models for stacked single season occupancy models
 include random effect of route and state
 
-13520 sites
+7917 sites
 Maximum number of observations per site: 6 
 Mean number of observations per site: 6 
-Sites with at least one detection: 7723 
+Sites with at least one detection: 4010 
 
 Tabulation of y observations:
     0     1 
-51390 29730
+27851 19651
 ```{r, echo=T}
 null <- occu(~1 ~1, data=umf)
 null.r <- occu(~(1|st_id) + (1|state) ~1, data=umf)
 summary(null.r)
 
 
-plogis(-5.72) #detection -> 0.3% detection
-plogis(1.18)  #occupancy -> 76.5% occupancy
+plogis(-5.47) #detection -> 0.4% detection
+plogis(0.662)  #occupancy -> 66.0% occupancy
 
 #####
 #detection models
@@ -214,40 +217,43 @@ p.month2 <- occu(~scale(start_month) + I(scale(start_month)*scale(start_month)) 
                    (1|st_id) + (1|state) ~1, data=umf)
 p.hour <- occu(~hour + (1|st_id) + (1|state) ~1, data=umf)
 p.time <- occu(~scale(start_time_s) + (1|st_id) + (1|state) ~1, data=umf)
+p.time2 <- occu(~scale(start_time_s) + I(scale(start_time_s)*scale(start_time_s)) + (1|st_id) + (1|state) ~1, data=umf)
+
+p.time.c <- occu(~scale(start_time_c) + (1|st_id) + (1|state) ~1, data=umf)
 
 p.timecat <- occu(~start_time_cat + (1|st_id) + (1|state) ~1, data=umf)
 
-p.global <- occu(~scale(min) + scale(noise) + 
-                   scale(start_date_j) + start_date_j2 +
-                   start_time_cat + 
-                   (1|st_id) + (1|state) ~1, data=umf)
-
-p.global2 <- occu(~scale(min) + scale(noise) + 
-                   scale(start_date_j) + I(scale(start_date_j)*scale(start_date_j)) +
-                   start_time_cat + 
-                   (1|st_id) + (1|state) ~1, data=umf)
-
+#####
 p.fl <- fitList(null, null.r, p.min, #per minute within a survey
                 p.moon, p.sky, p.noise, #site covariates
-                p.day, p.day2, p.month, p.month2, p.time, p.timecat, p.hour) #, #timing of survey
+                p.day, p.day2, p.month, 
+                p.time, p.time2, p.timecat, p.hour,
+                p.time.c) #, #timing of survey p.month2, 
                 # p.global) 
 modSel(p.fl)
-#           nPars      AIC   delta    AICwt cumltvWt
-# p.global      8 72694.59    0.00  1.0e+00     1.00
-# p.min         3 72821.55  126.96  2.7e-28     1.00
-# p.noise       3 72962.21  267.62  7.7e-59     1.00
-# p.day2        4 73021.81  327.22  8.8e-72     1.00
-# p.month       3 73022.70  328.11  5.6e-72     1.00 #correlated with day2
-# p.month2      4 73024.49  329.90  2.3e-72     1.00 #correlated with day2
-# p.timecat     5 73028.90  334.31  2.5e-73     1.00
+#           nPars      AIC   delta   AICwt cumltvWt
+# p.noise       3 29523.68    0.00 1.0e+00     1.00
+# p.sky         3 29570.63   46.95 6.4e-11     1.00
+# p.day2        4 29580.46   56.78 4.7e-13     1.00
+# p.hour       20 29581.49   57.81 2.8e-13     1.00
+# p.day         3 29595.19   71.51 3.0e-16     1.00
+# p.moon        3 29605.12   81.44 2.1e-18     1.00
+# p.month       3 29611.50   87.82 8.5e-20     1.00
+# p.min         3 29645.95  122.27 2.8e-27     1.00
+# p.time        3 29650.64  126.96 2.7e-28     1.00
+# p.time2       4 29666.77  143.09 8.5e-32     1.00
+# p.time.c      3 29670.30  146.62 1.5e-32     1.00
+# p.timecat     5 29672.09  148.41 5.9e-33     1.00
 
-# null.r        2 73030.69  336.10  1.0e-73     1.00
-# p.time        3 73032.49  337.90  4.2e-74     1.00
-# p.day         3 73051.27  356.68  3.5e-78     1.00
-# p.moon        3 73103.00  408.41  2.1e-89     1.00
-# p.hour       20 73141.32  446.73  9.8e-98     1.00
-# p.sky         3 73151.10  456.51 7.4e-100     1.00
-# null          2 79357.23 6662.64  0.0e+00     1.00
+# null.r        2 29681.31  157.63 5.9e-35     1.00
+# null          2 33896.55 4372.87 0.0e+00     1.00
+
+#####
+p.global <- occu(~scale(min) + 
+                   scale(noise) + scale(sky) + moon +
+                   scale(start_time_s) +
+                   scale(start_date_j) + scale(start_time_s) + 
+                   (1|st_id) + (1|state) ~1, data=umf)
 ```
 ## coefficients and marginal plots for detection variables
 include random effect of route and state
@@ -264,10 +270,10 @@ c.plot <- ggplot(data=p.coefs[!p.coefs$name %in% "Int",], aes(x=name, y=est, gro
   geom_hline(aes(yintercept=0), lty="dotted") +
   xlab("parameter") + ylab("estimate") +
   coord_flip() +
-  theme_bw(base_size=16) + theme(panel.grid=element_blank()) + facet_wrap(.~p, scales="free", ncol=1)
+  theme_bw(base_size=16) + theme(panel.grid=element_blank(), legend.position="none") + facet_wrap(.~p, scales="free", ncol=1)
 c.plot
 
-ggsave(c.plot, filename="../Figures/occupancy/CWWI_stacked_occupancy_det_coefficients.tiff")
+ggsave(c.plot, filename="../Figures/occupancy/CWWI_stacked_occupancy_det_coefficients.tiff", height=6, width=4, units="in", dpi=400, compression="lzw")
 
 ###########
 #univariate model marginal plots
@@ -299,20 +305,45 @@ ylabel <- data.frame(type=c("det","state"), label=c("detection","occupancy"))
 #
 #plot these with p.global2, need to pull out scale() from within I() to plot these
 plot.marginal(sp="CWWI", p.global, "noise", "noise", type="det")
-plot.marginal(sp="CWWI", p.global2, "start_date_j", "Julian day", type="det") #need to plot separately with p.global2 since have scale within I()
+plot.marginal(sp="CWWI", p.global, "sky", "sky", type="det")
+plot.marginal(sp="CWWI", p.global, "start_date_j", "Julian day", type="det")
+stime.plot <- plot.marginal(sp="CWWI", p.global, "start_time_s", "start time", type="det")
+
+# #convert time of day to something continuous
+# hours_in_day <- 24 #circumference = 2*pi
+# seconds_in_day <- 24*60*60 
+# master.nsn$start_time_s <- sin((as.numeric(master.nsn$hour)*60*60 + 
+#                                   as.numeric(master.nsn$min)*60 + 
+#                                   as.numeric(master.nsn$sec))/seconds_in_day*(2*pi))
+
+# plot.marginal(sp="CWWI", p.global2, "start_date_j", "Julian day", type="det") #need to plot separately with p.global2 since have scale within I()
 
 #plot separately for categorical and obsCovs
 #for categorical
-sp <- "CWWI"; par <- "start_time_cat"; par.name <- "start time"; type <- "det"
-nd <- data.frame(nd.mean[,names(nd.mean) != par], par=c("day","dawn","night","dusk"))
+# sp <- "CWWI"; par <- "start_time_cat"; par.name <- "start time"; type <- "det"
+# nd <- data.frame(nd.mean[,names(nd.mean) != par], par=c("day","dawn","night","dusk"))
+# names(nd) <- gsub(names(nd), pattern="par", replacement=par)
+# marginal <- predict(p.global, type=type, newdata=nd)
+# o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
+#   # geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") + geom_line() + 
+#   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.5, lwd=1) + geom_point(size=3) +
+#   ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) + #ylim(0,1) +
+#   xlab(par.name) +
+#   theme_bw(base_size=20) + theme(panel.grid=element_blank())
+# print(o)
+# ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
+
+#for moon
+sp <- "CWWI"; par <- "moon"; par.name <- "moon visible"; type <- "det"
+nd <- data.frame(nd.mean[,names(nd.mean) != par], par=0:1)
+nd$par <- factor(nd$par, levels=c(0,1))
 names(nd) <- gsub(names(nd), pattern="par", replacement=par)
 marginal <- predict(p.global, type=type, newdata=nd)
 o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
-  # geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.5, fill="grey75") + geom_line() + 
   geom_errorbar(aes(ymin=lower, ymax=upper), width=0.5, lwd=1) + geom_point(size=3) +
-  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) + #ylim(0,1) +
+  ylab(paste("Predicted probability of", ylabel[ylabel$type == type,]$label)) +ylim(0,1) +
   xlab(par.name) +
-  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  geom_line() + theme_bw(base_size=20) + theme(panel.grid=element_blank())
 print(o)
 ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
 
@@ -329,20 +360,21 @@ o <- ggplot(marginal, aes(x=nd[,par], y=Predicted)) +
 print(o)
 ggsave(o, filename=paste("../Figures/occupancy/", sp, "_stacked_occupancy_",type,"_", par,".tiff", sep=""), height=6, width=6, unit="in", dpi=300, compression="lzw")
 
+
 ```
 
 ## run occupancy models for stacked single season occupancy models
 include random effect of route on occupancy, included state as a fixed effect
 removed sites without BCR information
 
-11567 sites
+11796 sites
 Maximum number of observations per site: 6 
 Mean number of observations per site: 6 
-Sites with at least one detection: 3821 
+Sites with at least one detection: 3145 
 
 Tabulation of y observations:
     0     1  <NA> 
-54609 14782    11
+55957 14808    11 
 
 ```{r, echo=T}
 #####
@@ -368,14 +400,15 @@ o.fl <- fitList(null,
                 o.bcr, o.state, o.year)
 modSel(o.fl)
 #         nPars      AIC  delta   AICwt cumltvWt
-# o.lat2      4 33835.08   0.00 1.0e+00     1.00
-# o.state    11 33852.06  16.97 2.1e-04     1.00
-# o.lat       3 33889.79  54.71 1.3e-12     1.00
-# o.bcr       8 33893.84  58.76 1.7e-13     1.00
-# o.long2     4 33907.15  72.07 2.2e-16     1.00
-# o.long      3 33915.02  79.94 4.4e-18     1.00
-# null        2 34080.56 245.48 5.0e-54     1.00
-# o.year     17 34094.78 259.70 4.0e-57     1.00
+# o.lat2      4 24587.62   0.00 1.0e+00     1.00
+# o.state    12 24613.16  25.55 2.8e-06     1.00
+# o.bcr       8 24673.19  85.57 2.6e-19     1.00
+# o.lat       3 24673.87  86.26 1.9e-19     1.00
+# o.long2     4 24725.44 137.82 1.2e-30     1.00
+# o.long      3 24736.95 149.33 3.7e-33     1.00
+
+# null        2 24968.92 381.30 1.6e-83     1.00
+# o.year     17 24991.65 404.03 1.8e-88     1.00
 
 #these are all the same model, coded differently to be able to plot easily
 o.global <- occu(~1 ~ scale(Route.Latitude) + Route.Latitude2 + 
@@ -413,7 +446,7 @@ plotEffects(o.global1, "state", covariate="Route.Latitude")
 plotEffects(o.global2, "state", covariate="Route.Longitude")
 
 ##########
-nd.mean <- site.stacked %>% mutate_if(is.numeric, mean)
+nd.mean <- site.stacked %>% mutate_if(is.numeric, mean, na.rm=T)
 nd.mean <- nd.mean[200,] #only take one row since all rows have the same numeric values (but st_id matters)
 
 ylabel <- data.frame(type=c("det","state"), label=c("detection","occupancy"))
@@ -423,22 +456,13 @@ plot.marginal(sp="CWWI", o.global1, "Route.Latitude", "Latitude", type="state")
 plot.marginal(sp="CWWI", o.global2, "Route.Longitude", "Longitude", type="state")
 
 
-####
-#plot occupancy per state per BCR
-####
-# nd <- data.frame(state=rep(unique(data$state), times=length(unique(data$year))), 
-#                  year=rep(unique(data$year), each=length(unique(data$state))),
-#                  st_id="GA--270056") #have to provide this for predict to work
-
-
-
 #######
 #plot values for each BCR
 #######
 require(sf)
 AF_states <- st_read(dsn="../../GIS", layer="AF_states")
 BCR.ST <- read_sf(dsn="../../GIS", layer="BCR-state") #area in mi^2
-BCR <- BCR.ST %>% group_by(BCR) %>% summarise(AreaSqMi = sum(AreaSqMi, na.rm=T), nstates=n())
+BCR <- BCR.ST %>% group_by(BCR) %>% dplyr::summarise(AreaSqMi = sum(AreaSqMi, na.rm=T), nstates=n())
 
 mod <- o.global0
 
@@ -461,7 +485,7 @@ marginal <- predict(mod, type="state", newdata=nd)
 m.data <- cbind(nd, marginal)
 # m.data <- m.data[order(m.data$state),]
 # m.data$state <- factor(m.data$state, levels=rev(c("FL","GA","SC","NC","VA","WV","MD","DE","NJ","PA","NY","CT","MA","VT","NH","ME")))
-m.data$BCR <- factor(m.data$BCR, levels=rev(c(31,27,29,28,30,13,14)))
+m.data$BCR <- factor(m.data$BCR, levels=c(31,27,29,28,30,13,14))
 
 ggplot(m.data, aes(x=BCR, y=Predicted)) +
   geom_hline(aes(yintercept=0), lty="dashed", col="grey50") + geom_hline(aes(yintercept=1), lty="dashed", col="grey50") +

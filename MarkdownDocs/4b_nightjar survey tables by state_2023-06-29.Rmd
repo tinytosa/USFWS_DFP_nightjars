@@ -33,6 +33,8 @@ unique(BCR.ST$ST)
 BCR.ST$ST <- factor(BCR.ST$ST)
 BCR.ST$BCR <- factor(BCR.ST$BCR)
 
+#summary (num.exist, num.new, num.total)
+#comparison of random routes vs. existing nightjar routes
 s2 <- read.csv("../Data_processed/table_for_states_summary.csv")
 s2[s2$selected == 1,]$selected <- "selected"
 s2[s2$selected == 0,]$selected <- "alternate"
@@ -41,10 +43,36 @@ names(s2) <- c("ST","BCR","selected","num.exist","num.new","num.total")
 s2 <- s2[order(s2$selected, decreasing=T),]
 # s2 <- s2[order(s2$BCR),]
 
+#summary (num.bbs, num.new, num.total)
+s.bbs <- read.csv("../Data_processed/table_for_states_summary_BBS.csv")
+s.bbs <- s.bbs[order(s.bbs$selected, decreasing=T),]
 
+######
+#calculate percent of random routes with existing routes or BBS routes
+sum(s2[s2$selected == "selected",]$num.exist) #202
+sum(s2[s2$selected == "selected",]$num.exist)/sum(s2[s2$selected == "selected",]$num.total) * 100
+#67.6%
+
+sum(s2[s2$selected == "alternate",]$num.exist) #212
+sum(s2[s2$selected == "alternate",]$num.exist)/sum(s2[s2$selected == "alternate",]$num.total) * 100
+#70.9%
+
+sum(s.bbs[s.bbs$selected == "selected",]$num.BBS) #276
+sum(s.bbs[s.bbs$selected == "selected",]$num.BBS)/sum(s.bbs[s.bbs$selected == "selected",]$num.total) * 100
+#92.3%
+
+######
+
+#coordinates for random + existing
 data <- read.csv("../Data_processed/table_for_states.csv")
 names(data) <- c("rand_rt_name","selected","existing_rt","Long.exist","Lat.exist","distance","X.rand","Y.rand","ST","BCR")
 data$distance <- round(data$distance, digits=1)
+
+#coordinates for random + BBS
+data.bbs <- read.csv("../Data_processed/table_for_states_BBS.csv")
+names(data.bbs) <- c("rand_rt_name","selected","BBS_rt","Long.BBS","Lat.BBS","distance","X.rand","Y.rand","ST","BCR")
+data.bbs$distance <- round(data.bbs$distance, digits=1)
+data.bbs <- data.bbs[order(data.bbs$selected, decreasing=T),]
 
 #create function to print map for state
 summary_table <- function(st)
@@ -67,6 +95,18 @@ alternate_table <- function(st)
   kable(data.alternate.st[,!names(data.alternate.st) %in% c("selected","ST")], caption = "Alternate nightjar survey routes", row.names=F)
 }
 
+summary_bbs <- function(st)
+{
+  s.bbs.st <- s.bbs[s.bbs$ST == st,]
+  kable(s.bbs.st, caption = "Number of random routes with BBS routes vs number of random routes where new routes need to be established", row.names=F)
+}
+
+bbs_table <- function(st)
+{
+  data.selected.st <- data.bbs[data.bbs$ST == st,]
+  data.selected.st <- data.selected.st[order(data.selected.st$selected, data.selected.st$rand_rt_name),]
+  kable(data.selected.st[,!names(data.selected.st) %in% c("selected","ST")], caption = "BBS survey routes", row.names=F)
+}
   
 #base plot
 plot <- ggplot() + 
@@ -74,7 +114,7 @@ plot <- ggplot() +
   scale_fill_brewer(palette="Set2") +
   scale_shape_manual(values=c(21,24)) + scale_color_manual(values=c("black","grey50")) +
   xlab("") + ylab("") +
-  theme_bw(base_size=20) + theme(panel.grid=element_blank())
+  theme_bw(base_size=16) + theme(panel.grid=element_blank())
 
 one.map <- function(st)
 {
@@ -157,8 +197,6 @@ all.map <- function(st)
   ex <- extent(AF_states[AF_states$ST == st,])
   data.st <- data[data$ST == st,]
   
-  data.st %>% group_by()
-  
   #create "alternate" column so easier to plot
   data.st$alternate <- 0
   data.st[data.st$selected == 0,]$alternate <- 1
@@ -186,6 +224,43 @@ all.map <- function(st)
     theme(legend.position = "none"))
 }
 
+
+bbs.map <- function(st)
+{
+  cat("  \n") 
+  cat("## Map of randomly placed routes and alternate routes with BBS routes wihtin 20 miles of the randomly placed routes")
+  cat("  \n") 
+  
+  ex <- extent(AF_states[AF_states$ST == st,])
+  data.st <- data.bbs[data.bbs$ST == st,]
+  
+  #create "alternate" column so easier to plot
+  data.st$alternate <- 0
+  data.st[data.st$selected == 0,]$alternate <- 1
+  data.st$alternate <- factor(data.st$alternate)
+  
+  #create shape column, if there is a corresponding existing route
+  data.st$shape <- "triangle"
+  try(data.st[!is.na(data.st$Long.exist),]$shape <- "circle", silent=T)
+  
+  random.sf <- st_as_sf(data.st, coords=c("X.rand","Y.rand"), crs=4269)
+  existing.sf <- st_as_sf(data.st[!is.na(data.st$Long.BBS),], coords=c("Long.BBS","Lat.BBS"), crs=4269)
+
+  #only include points that were selected
+  print(plot + 
+    geom_sf(data=random.sf[is.na(random.sf$Long.BBS),], aes(col=alternate), pch=24, size=2) + #triangle for random points without existing nearby
+    geom_sf(data=random.sf[random.sf$alternate==1,], aes(col=alternate, shape=shape), fill=NA, stroke=1.5) + 
+    geom_sf(data=random.sf[random.sf$alternate==0,], aes(col=alternate, shape=shape), fill="black", stroke=1.5) + 
+    
+    geom_sf(data=existing.sf[existing.sf$alternate == 1,], col="#AA4465", pch=1, stroke=1) + 
+    geom_sf(data=existing.sf[existing.sf$alternate == 0,], col="#AA4465", pch=16)  + 
+    geom_text_repel(data=existing.sf,
+                    aes(label=BBS_rt, geometry=geometry, col=alternate), stat = "sf_coordinates", col="#AA4465", size=3) +
+    coord_sf(xlim=c(ex@xmin, ex@xmax), ylim=c(ex@ymin-0.15, ex@ymax)) +
+    annotation_scale(unit_category = "imperial") +
+    theme(legend.position = "none"))
+}
+
 blanks <- rep(c(' ', '\n'),5) # This will print five blank lines between plots. 
 
 AddBreak <- function() {
@@ -198,6 +273,10 @@ for (i in blanks)
 The following tables and maps were produced to help facilitate a systematic survey of nightjars along the Atlantic Flyway. To achieve this goal, we conducted a power analysis, which determined that ~300 routes (3000 surveys) could be used to classify nightjar species as "endangered" (trend < -0.04 and final occupancy < 0.13), "threatened" (-0.04 < trend < 0 and 0.13 < final occupancy < 0.25), or "not warranted" (trend > 0, final occupancy > 0.25). Going off of the results of this analysis, we randomly distributed 300 routes along the Atlantic Flyway according to the area of the state and bird conservation region (BCR). We specified that routes must be at least 20 miles apart from one another. We did not use other criteria to censor areas of the flyway because each of the 3 nightjar species of interest (common nighthawk, eastern whip-poor-will, and chuck-will's-widow) are associated with different habitats and have different habits. We then compared the randomly placed routes to existing nightjar survey routes and highlight any within 20 miles of a randomly placed route. Because of safety concerns and logistical constraints with conducting nightjar survey routes, we produced additional "alternate" routes that fit within the randomly produced route schematic and could be used instead. Existing routes within 20 miles of these alternate routes are also highlighted. Therefore, each state ultimately has the opportunity to decide which routes are most appropriate.
 
 ![](../Figures/legend_for_states.png){ height=40% width=40%}
+
+\newpage
+
+![Number of current (2019-2022) nightjar survey routes (first number) vs. ideal number of routes to achieve a total of 300 routes across the Atlantic Flyway](../Figures/samples_per_bcr-state_3k.png)
 
 \newpage
 
@@ -220,6 +299,11 @@ for(st in AF_states$ST)
   
   cat("\n\n\\pagebreak\n")
   
+  print(summary_bbs(st))
+  print(bbs_table(st))
+  
+  cat("\n\n\\pagebreak\n")
+  
   one.map(st)
   
   cat("\n\n\\pagebreak\n")
@@ -229,6 +313,10 @@ for(st in AF_states$ST)
   cat("\n\n\\pagebreak\n")
   
   all.map(st)
+  
+  cat("\n\n\\pagebreak\n")
+  
+  bbs.map(st)
   
   cat("\n\n\\pagebreak\n")
 }

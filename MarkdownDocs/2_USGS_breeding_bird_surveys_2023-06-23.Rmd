@@ -377,6 +377,12 @@ regions <- paste("S", c(13,14,27:31), sep="")
 bbs.trends <- bbs.trends[bbs.trends$AOU %in% nightjars & bbs.trends$Region %in% regions,]
 bbs.trends$Species.Name <- trimws(bbs.trends$Species.Name)
 
+bbs.trends %>% group_by(Species.Name) %>% summarize(min=min(Trend), max=max(Trend))
+#   Species.Name             min    max
+# 1 Chuck-will's-widow     -4.39 -0.107
+# 2 Common Nighthawk       -6.38 -1.26 
+# 3 Eastern Whip-poor-will -4.56  0.277
+
 bbs.index <- bbs.index[bbs.index$AOU %in% nightjars & bbs.index$Region %in% regions,]
 bbs.index$AOU <- factor(bbs.index$AOU)
 # bbs.index$Year <- factor(bbs.index$Year)

@@ -613,6 +613,12 @@ y1 <- plot.quad(d=d1$site.stacked, model=global.ewpw, sp=d1$sp, par="Year",par2=
 y2 <- plot.quad(d=d2$site.stacked, model=global.cwwi, sp=d2$sp, par="Year",par2="y", par.name="Year", type="state") #use row number 1 instead of 1000
 y3 <- plot.quad(d=d3$site.stacked, model=global.coni, sp=d3$sp, par="Year",par2="y", par.name="Year", type="state")
 
+range(y1$m.data$Predicted)
+range(y2$m.data$Predicted)
+range(y3$m.data$Predicted)
+
+plogis(-4.685)
+
 #state
 plot.state(d=d1$site.stacked, model=global.ewpw, sp=d1$sp, par="state-year", year=2021)
 plot.state(d=d2$site.stacked, model=global.cwwi, sp=d2$sp, par="state-year", year=2021)

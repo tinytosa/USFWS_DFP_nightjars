@@ -325,7 +325,7 @@ plot.quad <- function(d, model, sp, par, par2, par.name, type)
   
   nd <- data.frame(nd.mean[,!names(nd.mean) %in% c(par, par2)],
                    par=seq(min(d[,par]), max(d[,par]), length.out=1000))
-  nd[,par2] <- (nd$par-attr(scale(d[,c(par)]),"scaled:center"))/attr(scale(d[,c(par)]),"scaled:scale")^2
+  nd[,par2] <- ((nd$par-attr(scale(d[,c(par)]),"scaled:center"))/attr(scale(d[,c(par)]),"scaled:scale"))^2
   names(nd) <- gsub(names(nd), pattern="par", replacement=par)
   nd$min <- 1
   
@@ -572,7 +572,8 @@ umf <- d$umf
 global.cwwi <- occu(~scale(min) + 
                    # scale(noise) + moon + 
                    # scale(start_date_j) + start_date_j2 +
-                   (1|st_id) + (1|state) 
+                   # (1|st_id) + 
+                     (1|state) 
                ~scale(Route.Latitude) + Route.Latitude2 + 
                    scale(Route.Longitude) + Route.Longitude2 + 
                    BCR + year + (1|st_id), data=umf)
@@ -586,7 +587,8 @@ umf <- d$umf
 global.coni <- occu(~scale(min) + 
                    # scale(noise) + moon + 
                    # scale(start_date_j) + start_date_j2 +
-                   (1|st_id) + (1|state) 
+                   # (1|st_id) + 
+                     (1|state) 
                ~scale(Route.Latitude) + Route.Latitude2 + 
                    scale(Route.Longitude) + Route.Longitude2 + 
                    BCR + year + (1|st_id), data=umf)
